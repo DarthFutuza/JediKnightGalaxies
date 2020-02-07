@@ -943,6 +943,34 @@ qboolean CustomVendorSounds(gentity_t *conversationalist, char *name)
 
 
 /*
+========================
+HasCustomCivSounds
+does the npc have custom sounds?
+
+========================
+*/
+qboolean HasCustomCivSounds(char* path, gentity_t* conversationalist, char* name)
+{
+	fileHandle_t	f;
+	char			filename[256];
+
+	strcpy(filename, va("%s/civilian_%s/%s.mp3", path, conversationalist->NPC_type, name));
+
+	trap->FS_Open(filename, &f, FS_READ);
+
+	if (!f)
+	{// End of conversation...
+		trap->FS_Close(f);
+		return qfalse;
+	}
+
+	trap->FS_Close(f);
+
+	return qtrue;
+}
+
+
+/*
 ==================
 JKG_BuyItem_f
 
@@ -991,11 +1019,22 @@ void Cmd_BuyItem_f(gentity_t *ent)
 			G_Sound(trader, CHAN_AUTO, G_SoundIndex(filename));
 		}
 
-		//if not custom vendor, use the generic one
+		//if not custom vendor, check for fallback sounds
 		else
 		{
-			snd = va("sound/vendor/generic/purchasefail0%i.mp3", Q_irand(0, 5));
-			G_Sound(trader, CHAN_AUTO, G_SoundIndex(snd));	//play sound
+			//check for conversation 'upset' sound
+			if (HasCustomCivSounds(va("sound/conversation"), trader, va("upset00")) )
+			{
+				snd = va("sound/conversation/civilian_%s/upset00.mp3", trader->NPC_type);
+				G_Sound(trader, CHAN_AUTO, G_SoundIndex(snd));	//play sound
+			}
+
+			//use generic
+			else
+			{
+				snd = va("sound/vendor/generic/purchasefail0%i.mp3", Q_irand(0, 5));
+				G_Sound(trader, CHAN_AUTO, G_SoundIndex(snd));	//play sound
+			}
 		}
 		return;
 	}
@@ -1862,7 +1901,7 @@ void SetTeam( gentity_t *ent, char *s ) {
 		ent->flags &= ~FL_GODMODE;
 		ent->client->ps.stats[STAT_HEALTH] = ent->health = 0;
 		g_dontPenalizeTeam = qtrue;
-		player_die (ent, ent, ent, 100000, MOD_SUICIDE);
+		player_die (ent, ent, ent, 100000, MOD_TEAM_CHANGE);
 		g_dontPenalizeTeam = qfalse;
 
 	}
@@ -4563,9 +4602,9 @@ void Cmd_BuyAmmo_f(gentity_t* ent) {
 	int itemSlot;
 	char argBuffer[MAX_TOKEN_CHARS] {0};
 	int myCredits = ent->client->ps.credits;
-	int cost;
+	float cost;
 	int totalCost = 0, numFiringModesFilled = 0, numUnitsPurchased = 0;
-	int perUnitCost = 0;
+	float perUnitCost = 0;
 
 	gentity_t* trader = ent->client->currentTrader;
 	if (trader == nullptr)
@@ -4616,20 +4655,21 @@ void Cmd_BuyAmmo_f(gentity_t* ent) {
 		else
 			perUnitCost = ammo->pricePerUnit;
 
-		if (myCredits == 0 && perUnitCost == 0)
+		if (myCredits <= 0 && perUnitCost <= 0)
 			;
 		else
 		{
-			if (myCredits < perUnitCost) {
-				continue; // we don't have enough money to afford one unit of ammo
+			if (myCredits < perUnitCost) // we don't have enough money to afford one unit of ammo
+			{
+				trap->SendServerCommand(ent - g_entities, "print \"You cannot afford ammo for that weapon.\n\"");
+				continue; 
 			}
 		}
 
-		cost = perUnitCost * unitsRequested;
+		cost = perUnitCost * (float)unitsRequested;
 
-		
 		//if passiveUnderdogBonus is enabled and our team is losing, our ammo is discounted!  Awww, thanks vendor!  
-		if (jkg_passiveUnderdogBonus.integer > 0)	//--Futuza: this is only done game logic side, and needs to be added to the display in jkg_shop.cpp because right now it will just display the usual price
+		/*if (jkg_passiveUnderdogBonus.integer > 0)	//--Futuza: this needs to match logic of BG_GetRefillAmmoCost() in bg_ammo.cpp, disabled for now
 		{
 			//who is currently winning?
 			auto my_team = ent->client->sess.sessionTeam;
@@ -4657,10 +4697,10 @@ void Cmd_BuyAmmo_f(gentity_t* ent) {
 					ammoAdjust = 0.25;		//maximum discount is 75% off
 
 				cost = cost * ammoAdjust;
-				if (cost < 1)
+				if (0 < cost < 1)
 					cost = 1;
 			}
-		}
+		}*/
 
 		if (cost > myCredits) {
 			// We can't fill it all the way, so fill it as much as we can
@@ -4668,6 +4708,12 @@ void Cmd_BuyAmmo_f(gentity_t* ent) {
 			unitsRequested = floor(cost / perUnitCost);
 			cost = unitsRequested * perUnitCost;
 		}
+
+		//if our price is between 0 and 1, just make it cost 1 credit - so players can't scam us out of free ammo
+		if (0 < cost < 1) 
+			cost = 1;
+		
+		cost = floor(cost); //credits are int only, time to act like it
 
 		// Buy the ammo and update stats
 		//ent->client->ps.spent += cost;
