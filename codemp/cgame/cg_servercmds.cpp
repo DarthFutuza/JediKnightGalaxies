@@ -198,16 +198,6 @@ static void CG_ParseWarmup( void ) {
 	cg.warmup = warmup;
 }
 
-//Raz: This is a reverse map of flag statuses as seen in g_team.c
-//static char ctfFlagStatusRemap[] = { '0', '1', '*', '*', '2' };
-static char ctfFlagStatusRemap[] = { 	
-	FLAG_ATBASE,
-	FLAG_TAKEN,			// CTF
-	// server doesn't use FLAG_TAKEN_RED or FLAG_TAKEN_BLUE
-	// which was originally for 1-flag CTF.
-	FLAG_DROPPED
-};
-
 /*
 ================
 CG_SetConfigValues
@@ -1960,6 +1950,13 @@ static void CG_ServerCommand( void ) {
 	{
 		// Ammo price check response
 		uiImports->InventoryPriceCheckResult(atoi(CG_Argv(1)), atoi(CG_Argv(2)));
+		return;
+	}
+
+	if (!strcmp(cmd, "bbi"))
+	{
+		//buybackinventory check response, see Cmd_CheckBuyBack_f()
+		uiImports->BuybackCheckResult(atoi(CG_Argv(1)));
 		return;
 	}
 

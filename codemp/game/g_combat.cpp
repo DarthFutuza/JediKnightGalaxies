@@ -1685,7 +1685,7 @@ qboolean JKG_HandleUnclaimedBounties(gentity_t* deadguy)
 		{
 			trap->SendServerCommand(player->s.number, va("notify 1 \"Team Bounty Claimed: +%i Credits\"", reward));
 			player->client->ps.credits += reward;
-			//consider doing some sort of sound to hint at reward here  --futuza
+			trap->SendServerCommand(player->s.number, "hitmarker");
 		}
 	}
 	return true;
@@ -2303,22 +2303,6 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 		static int i;
 
 		anim = G_PickDeathAnim(self, self->pos1, damage, meansOfDeath, HL_NONE);
-		
-		/*--Futuza
-		To Do: Fix, so we can get headshot information.  Get_HitLocation(self, self->pos1) should work to determine hit location, but gives wrong locations, might be broken everywhere not just here?
-
-		int hitLoc = Get_HitLocation(self, self->pos1);
-		if (hitLoc == HL_HEAD) //--futuza: notify of headshots
-		{
-			if (inflictor != attacker)
-			{
-				trap->SendServerCommand(attacker - g_entities, va("notify 1 \"Headshot!\""));
-				trap->SendServerCommand(self - g_entities, va("notify 1 \"Head blow!\""));
-			}
-
-			else
-				trap->SendServerCommand(self - g_entities, va("notify 1 \"Head blow!\""));
-		}*/
 		
 		if (anim >= 1)
 		{ //Some droids don't have death anims
@@ -3857,34 +3841,36 @@ void G_CheckForBlowingUp(gentity_t *ent, gentity_t *enemy, vec3_t point, int dam
 
 /*
  *	Modifies the damage based on the location where it hit and also the armor equipped at that location (if any)
+    Returns true if a headshot, false if anything else.
  */
-void G_LocationBasedDamageModifier(gentity_t *ent, vec3_t point, int mod, int dflags, int *damage, meansOfDamage_t* means)
+bool G_LocationBasedDamageModifier(gentity_t *ent, vec3_t point, int mod, int dflags, int *damage, meansOfDamage_t* means)
 {
 	int hitLoc = -1;
 	int armorSlot = 0;
+	qboolean headshot = false;
 
 	if (!g_locationBasedDamage.integer)
 	{ //then leave it alone
-		return;
+		return false;
 	}
 
 	if (means == nullptr) {
-		return;
+		return false;
 	}
 
 	if ( (dflags&DAMAGE_NO_HIT_LOC) )
 	{ //then leave it alone
-		return;
+		return false;
 	}
 
 	if (mod == MOD_SABER && *damage <= 1)
 	{ //don't bother for idle damage
-		return;
+		return false;
 	}
 
 	if (!point)
 	{
-		return;
+		return false;
 	}
 
 	if ((ent->client && ent->client->g2LastSurfaceTime == level.time && mod == MOD_SABER) || //using ghoul2 collision? Then if the mod is a saber we should have surface data from the last hit (unless thrown).
@@ -3943,6 +3929,7 @@ void G_LocationBasedDamageModifier(gentity_t *ent, vec3_t point, int mod, int df
 	case HL_HEAD:
 		armorSlot = ARMSLOT_HEAD;
 		*damage *= bgConstants.damageModifiers.headModifier;
+		headshot = true;
 		break;
 	default:
 		break; //do nothing then
@@ -3961,6 +3948,11 @@ void G_LocationBasedDamageModifier(gentity_t *ent, vec3_t point, int mod, int df
 			*damage *= modifier;
 		}
 	}
+
+	if (headshot)
+		return true;
+	else
+		return false;
 }
 /*
 ===================================
@@ -3985,8 +3977,16 @@ void G_Knockdown( gentity_t *self, gentity_t *attacker, const vec3_t pushDir, fl
 	{
 		return;
 	}
-	if ( (self->flags & FL_GODMODE) || (self->client->noclip) || (self->client->ps.eFlags & EF_JETPACK_ACTIVE)) {
-		return;	// Dont knock down when havin godmode or noclip, or when usin a jetpack
+	if ( (self->flags & FL_GODMODE) || (self->client->noclip)) {
+		return;	// Dont knock down when havin godmode or noclip
+	}
+	
+	//75% chance to knock jetpacks out of the air
+	if (self->client->ps.eFlags & EF_JETPACK_ACTIVE)
+	{
+		if(Q_irand(1,4) > 1)
+			Jetpack_Off(self);
+		//return;  //jetpacks used to be immune to knockback
 	}
 
 	if ( PM_LockedAnim( self->client->ps.legsAnim ) )
@@ -4067,6 +4067,87 @@ void G_Knockdown( gentity_t *self, gentity_t *attacker, const vec3_t pushDir, fl
 }
 
 /*
+===================================
+//Evasion Mechanics
+JKG_EvaluateEvasion()
+===================================
+*/
+void G_EvaluateEvasion(gentity_s* targ, gentity_s* attacker, int take)
+{
+	/*
+			Note:
+			Would like to make this sort of thing a skill (bounty hunter tree or something), can use rolling to evade attacks.
+			Chances for successfully dodging with a roll would depend on player's skill level.  Some stuff shouldn't be evadeable.
+			Probably should lower damage, instead of evading entirely as well.  Right now this is just an outline idea that is still fun.
+			--Futuza
+	*/
+
+		//sample skill calculation:
+		int dodgeSkill_level = 3;	//get player's skill level - we'll default to level 3 for now
+		float dmgReduction;
+
+		switch (dodgeSkill_level)
+		{
+		case 0:
+			dmgReduction = 0;	//no skill, no dodge allowed
+			break;
+		case 1:
+			dmgReduction = 0.1f;
+			break;
+		case 2:
+			dmgReduction = 0.125f;
+			break;
+		case 3:
+			dmgReduction = 0.15f;	//maximum reduction
+			break;
+		default:
+			dmgReduction = 0;
+		}
+
+
+		bool rolled = false;
+		if (dmgReduction > 0)
+		{
+			switch (targ->client->ps.legsAnim)	//check for roll & dmgReduction exists
+			{
+			case BOTH_ROLL_F: case BOTH_ROLL_B:
+			case BOTH_ROLL_R: case BOTH_ROLL_L:
+			case BOTH_GETUP_BROLL_B: case BOTH_GETUP_BROLL_F:
+			case BOTH_GETUP_BROLL_L: case BOTH_GETUP_BROLL_R:
+			case BOTH_GETUP_FROLL_B: case BOTH_GETUP_FROLL_F:
+			case BOTH_GETUP_FROLL_L: case BOTH_GETUP_FROLL_R:
+				if (targ->playerState->legsTimer > 0)	//they're rolling in time
+				{
+					int timing = bgAllAnims[targ->localAnimIndex].anims[targ->client->ps.legsAnim].numFrames * fabs((float)(bgHumanoidAnimations[targ->client->ps.legsAnim].frameLerp));	//get animation timing length
+					timing *= 0.5f; //cut in two
+					if ((timing + 300 > targ->playerState->legsTimer) && (targ->playerState->legsTimer > timing - 300))		//perfect timing
+					{
+						trap->SendServerCommand(targ - g_entities, va("notify 1 \"Flawless Dodge!\""));
+						take > 2 ? take *= (1 - (dmgReduction * 2)) : take = 1;	//double , or set it to 1
+						G_Sound(targ, CHAN_AUTO, G_SoundIndex("sound/weapons/melee/swing4.mp3"));		//play flawless dodge sound
+					}
+					else
+					{
+						take > 2 ? take *= (1 - dmgReduction) : take = 1;	//reduce damage by 1/4
+						trap->SendServerCommand(targ - g_entities, va("notify 1 \"Dodge!\""));
+					}
+					rolled = true;
+				}
+				break;
+			}
+		}
+		if (rolled)
+		{
+			//do dodge efx/plum here
+
+			if (attacker != targ || !attacker->client || attacker->s.number >= MAX_CLIENTS) //notify other players we dodged
+				trap->SendServerCommand(attacker - g_entities, va("notify 1 \"%s ^7dodged!\"", targ->client->pers.netname));
+		}
+}
+
+
+
+/*
  *	Determines whether damage from attacker to target should trigger a hitmarker
  */
 static QINLINE qboolean ShouldHitmarker( const gentity_t *attacker, const gentity_t *target, const int mod )
@@ -4089,7 +4170,7 @@ static QINLINE qboolean ShouldHitmarker( const gentity_t *attacker, const gentit
 	}
 	if( !target->client )
 	{
-		if ( target->s.eType == ET_GENERAL && target->s.eType == WP_TURRET )
+		if ( target->s.eType == ET_GENERAL || target->s.eType == WP_TURRET )	//futuza: shouldn't this be || instead of &&?
 			return qtrue;
 		return qfalse;
 	}
@@ -4219,7 +4300,9 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 	int			take;
 	int			ssave;
 	int			knockback;
+	qboolean	isHeadShot = false;
 	meansOfDamage_t* means = JKG_GetMeansOfDamage(mod);
+
 
 	if (!targ || !targ->inuse)
 	{
@@ -4531,86 +4614,11 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 	}
 	take = damage;
 
-
-	///////////////////////////////////////
-	//
-	//Evasion Mechanics
-	//
-
-	//if roll dodges are allowed (off by default since gimmicky in phase 1)
+	//if roll dodges are allowed (on by default)
 	if (jkg_allowDodge.integer > 0 && take > 0 && means->modifiers.dodgeable && targ->client)
 	{
-		/*
-			Note:
-			Would like to make this sort of thing a skill (bounty hunter tree or something), can use rolling to evade attacks.
-			Chances for successfully dodging with a roll would depend on player's skill level.  Some stuff shouldn't be evadeable.
-			Probably should lower damage, instead of evading entirely as well.  Right now this is just an outline idea that is still fun.
-			--Futuza
-		*/
-		
-		//sample skill calculation:
-		int dodgeSkill_level = 3;	//get player's skill level
-		float dmgReduction;
-
-		switch (dodgeSkill_level)
-		{
-		case 0:
-			dmgReduction = 0;	//no skill, no dodge allowed
-			break;
-		case 1:
-			dmgReduction = 0.1f;
-			break;
-		case 2:
-			dmgReduction = 0.125f;
-			break;
-		case 3:
-			dmgReduction = 0.15f;	//maximum reduction
-			break;
-		default:
-			dmgReduction = 0;
-		}
-
-
-		bool rolled = false;
-		if(dmgReduction > 0)
-		{
-			switch (targ->client->ps.legsAnim)	//check for roll & dmgReduction exists
-			{
-				case BOTH_ROLL_F: case BOTH_ROLL_B:
-				case BOTH_ROLL_R: case BOTH_ROLL_L:
-				case BOTH_GETUP_BROLL_B: case BOTH_GETUP_BROLL_F:
-				case BOTH_GETUP_BROLL_L: case BOTH_GETUP_BROLL_R:
-				case BOTH_GETUP_FROLL_B: case BOTH_GETUP_FROLL_F:
-				case BOTH_GETUP_FROLL_L: case BOTH_GETUP_FROLL_R:
-				if (targ->playerState->legsTimer > 0)	//they're rolling in time
-				{
-					int timing = bgAllAnims[targ->localAnimIndex].anims[targ->client->ps.legsAnim].numFrames * fabs((float)(bgHumanoidAnimations[targ->client->ps.legsAnim].frameLerp));	//get animation timing length
-					timing *= 0.5f; //cut in two
-					if ( (timing+300 > targ->playerState->legsTimer) && (targ->playerState->legsTimer > timing-300) )		//perfect timing
-					{
-						trap->SendServerCommand(targ - g_entities, va("notify 1 \"Flawless Dodge!\""));
-						take > 2 ? take *= (1 - (dmgReduction * 2)) : take = 1;	//double , or set it to 1
-						G_Sound(targ, CHAN_AUTO, G_SoundIndex("sound/weapons/melee/swing4.mp3"));		//play flawless dodge sound
-					}
-					else
-					{
-						take > 2 ? take *= (1-dmgReduction) : take = 1;	//reduce damage by 1/4
-						trap->SendServerCommand(targ - g_entities, va("notify 1 \"Dodge!\""));
-					}
-					rolled = true;
-				}
-				break;
-			}
-		}
-		if (rolled)
-		{	
-			//do dodge efx/plum here
-
-			if (attacker != targ || !attacker->client || attacker->s.number >= MAX_CLIENTS) //notify other players we dodged
-				trap->SendServerCommand(attacker - g_entities, va("notify 1 \"%s ^7dodged!\"", targ->client->pers.netname));
-		}
+		G_EvaluateEvasion(targ, attacker, take); //calculate roll dodge reduction
 	}
-
 
 	///////////////////////////////////////
 	//
@@ -4670,8 +4678,8 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		if (targ->client->ps.eFlags & EF_JETPACK_ACTIVE)
 			Jetpack_Off(targ);
 
-		/*put other electronic effects here
-		  eg: make HUD or radar go fuzzy, short out other equipment/tech, etc.*/
+		//--Futuza: note that a better version of EMP is available through the standard-emp debuff, this only shorts stuff out once
+		//see how it interacts with jetpacks in jkg_equip.cpp ItemUse_Jetpack()
 	}
 
 	if (take > 0 && !(dflags&DAMAGE_NO_HIT_LOC))
@@ -4679,7 +4687,7 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		if (targ->client &&
 			attacker->inuse && attacker->client)
 		{ //check for location based damage stuff.
-			G_LocationBasedDamageModifier(targ, point, mod, dflags, &take, means);
+			isHeadShot = G_LocationBasedDamageModifier(targ, point, mod, dflags, &take, means);
 		}
 	}
 
@@ -4693,6 +4701,14 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		{
 			take *= means->modifiers.droid;
 		}
+	}
+
+	// save some from being resistant (eg: carbonite protects us)
+	if (targ->client && take > 0 && JKG_HasResistanceBuff(targ->playerState))
+	{
+		take = take / 2; //reduce damage by 1/2
+		if (take < 1)
+			take = 1;
 	}
 
 #ifndef FINAL_BUILD
@@ -4840,6 +4856,30 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 				else
 				{
 					VectorCopy(targ->client->ps.origin, targ->pos1);
+				}
+
+				//if our movement was frozen unfreeze at death - this should happen on player_die - shouldn't be necessary here?
+				/*client->pmfreeze = qfalse;
+				client->pmfreeze = qfalse;
+				client->pmlock = qfalse;
+				client->pmnomove = qfalse;
+
+				client->ps.freezeLegsAnim = 0;
+				client->ps.freezeTorsoAnim = 0;
+				targ->s.freezeLegsAnim = 0;
+				targ->s.freezeTorsoAnim = 0;*/
+				
+
+				//notify of headshot --futuza
+				if (isHeadShot)
+				{
+					if (attacker != inflictor)
+					{
+						trap->SendServerCommand(targ - g_entities, va("chat 100 \"Killed by %s^7's head blow!\"", attacker->client->pers.netname));
+						trap->SendServerCommand(attacker - g_entities, va("notify 1 \"Head blow!\""));
+					}
+					else
+						trap->SendServerCommand(targ - g_entities, va("chat 100 \"Killed by your own head blow!\""));
 				}
 			}
 			else if (targ->s.eType == ET_NPC)

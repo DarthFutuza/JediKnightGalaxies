@@ -2457,6 +2457,9 @@ const char *eventnames[] = {
 	"EV_CHANGE_WEAPON",
 	"EV_FIRE_WEAPON",
 	"EV_ALT_FIRE",
+	"EV_HEATCRIT",
+	"EV_OVERHEATED",
+	"EV_HEATCOOLED",
 	"EV_SABER_ATTACK",
 	"EV_SABER_HIT",
 	"EV_SABER_BLOCK",
@@ -3450,4 +3453,11 @@ void Q_FSWriteString( fileHandle_t f, const char *msg ) {
 	if ( f != NULL_FILE ) {
 		trap->FS_Write( msg, strlen( msg ), f );
 	}
+}
+
+int Q_FSGetFileListSorted( const char *path, const char *extension, char *listbuf, int bufsize )
+{
+	int numFiles = trap->FS_GetFileList( path, extension, listbuf, bufsize );
+	sortStrings( &numFiles, listbuf, bufsize );
+	return numFiles;
 }

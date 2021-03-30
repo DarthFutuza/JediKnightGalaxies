@@ -18,8 +18,6 @@
 ammo_t ammoTable[MAX_AMMO_TYPES];
 int numAmmoLoaded = 0;
 
-const vec3_t defaultvec3 = { 1.0, 1.0, 1.0 };
-
 /*
 ============================
 BG_GetAmmo
@@ -64,10 +62,21 @@ void BG_GiveAmmo(gentity_t* ent, ammo_t* ammo, qboolean max, int amount)
 	if (max) {
 		ent->client->ammoTable[ammo->ammoIndex] = ammo->ammoMax;
 	}
-	else {
-		ent->client->ammoTable[ammo->ammoIndex] += amount;
-		if (ent->client->ammoTable[ammo->ammoIndex] > ammo->ammoMax) {
-			ent->client->ammoTable[ammo->ammoIndex] = ammo->ammoMax;
+	else
+	{
+		if (ent->client->ammoTable[ammo->ammoIndex] + amount < 0)
+		{
+			ent->client->ammoTable[ammo->ammoIndex] = 0;
+		}
+
+		else
+		{
+			ent->client->ammoTable[ammo->ammoIndex] += amount;
+
+			if (ent->client->ammoTable[ammo->ammoIndex] > ammo->ammoMax)
+			{
+				ent->client->ammoTable[ammo->ammoIndex] = ammo->ammoMax;
+			}
 		}
 	}
 }
@@ -886,7 +895,7 @@ void BG_InitializeAmmo ( void )
 	int failed = 0;
 	int numFiles;
 
-	numFiles = trap->FS_GetFileList(ammoDir, ".ammo", ammoFiles, sizeof(ammoFiles));
+	numFiles = Q_FSGetFileListSorted(ammoDir, ".ammo", ammoFiles, sizeof(ammoFiles));
 	ammo = ammoFiles;
 
 	Com_Printf("------- Ammo -------\n");

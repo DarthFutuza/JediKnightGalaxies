@@ -968,6 +968,7 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 			ent->client->dangerTime = level.time;
 			ent->client->ps.eFlags &= ~EF_INVULNERABLE;
 			ent->client->invulnerableTimer = 0;
+			ent->bb_inventory->clear();	//if we attack, no more buybacks
 			break;
 
 		case EV_ALT_FIRE:
@@ -975,12 +976,14 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 			ent->client->dangerTime = level.time;
 			ent->client->ps.eFlags &= ~EF_INVULNERABLE;
 			ent->client->invulnerableTimer = 0;
+			ent->bb_inventory->clear();	//if we attack, no more buybacks
 			break;
 
 		case EV_SABER_ATTACK:
 			ent->client->dangerTime = level.time;
 			ent->client->ps.eFlags &= ~EF_INVULNERABLE;
 			ent->client->invulnerableTimer = 0;
+			ent->bb_inventory->clear();	//if we attack, no more buybacks
 			break;
 
 		case EV_CHANGE_WEAPON:
@@ -2076,12 +2079,36 @@ void ClientThink_real( gentity_t *ent ) {
 		}
 	}
 
+	//JKG: purge any items in our buyback inventory list that have exceeded their buyback time
+	if (jkg_buybackTime.integer > 0 && ent->client->sess.sessionTeam != TEAM_SPECTATOR && ent->bb_inventory)
+	{
+		if (ent->lastBBTime + jkg_buybackTime.integer < level.time)
+		{
+			
+			if (ent->bb_inventory->size() > 0)
+			{
+				for (auto it = ent->bb_inventory->begin(); it != ent->bb_inventory->end();)
+				{
+					if (it->second < level.time - jkg_buybackTime.integer) //this item has expired
+					{
+						it = ent->bb_inventory->erase(it); //kill him, kill him now anakin
+					}
+
+					else
+						++it;
+				}
+			}
+			ent->lastBBTime = level.time;  //reset cooldown so we can check again
+		}
+	}
+
 	// Automatically regenerate health and shield
-	if (jkg_healthRegen.value > 0 && JKG_ClientAlive(ent)) {
+	if (jkg_healthRegen.value > 0 && JKG_ClientAlive(ent)) 
+	{
 		if (ent->lastHealTime < level.time && (ent->damagePlumTime + jkg_healthRegenDelay.value) < level.time)
 		{
 			int maxHealth = ent->client->ps.stats[STAT_MAX_HEALTH];
-			int pctage = (maxHealth < 100) ? jkg_healthRegen.value : (maxHealth / 100) * jkg_healthRegen.value;		// Add 1% (of 1 HP, whichever is higher)
+			int pctage = (maxHealth < 100) ? jkg_healthRegen.value : (maxHealth / 100) * jkg_healthRegen.value;		// Add 1% (or 1 HP, whichever is higher)
 			ent->health = ent->client->ps.stats[STAT_HEALTH] = (((ent->health + pctage) > maxHealth) ? maxHealth : ent->health + pctage);
 			ent->lastHealTime = level.time + jkg_healthRegenSpeed.value;
 		}
@@ -2149,6 +2176,35 @@ void ClientThink_real( gentity_t *ent ) {
 						break;
 					}
 				}
+			}
+		}
+	}
+
+	// remove fire and other debuffs that shields protect from
+	if(ent->client->shieldEquipped && ent->client->ps.stats[STAT_SHIELD] > 0 && JKG_ClientAlive(ent))
+	{
+		//remove debuff, as shield protects us, if true returned then we need to also remove the stunlock (false still removes debuff)
+		if (JKG_CheckShieldRemoval(&ent->client->ps))
+		{
+			//remove stunlock
+			ent->client->pmfreeze = qfalse;
+			ent->client->pmlock = qfalse;
+		}
+	}
+
+	// remove toxins and other debuffs that filters protects
+	if (ent->inventory->size() > 0 && JKG_ClientAlive(ent))
+	{
+		// Play the sound effect for the shield recharging, if one exists
+		for (auto it = ent->inventory->begin(); it != ent->inventory->end(); ++it)
+		{
+			if (it->equipped && ( it->id->itemType == ITEM_ARMOR || it->id->itemType == ITEM_CLOTHING) )
+			{
+				if (it->id->armorData.pArm->filter)
+				{
+					JKG_CheckFilterRemoval(&ent->client->ps);
+				}
+				break;
 			}
 		}
 	}
@@ -3499,29 +3555,6 @@ void ClientThink( int clientNum,usercmd_t *ucmd ) {
 	if (ucmd)
 	{
 		ent->client->pers.cmd = *ucmd;
-	}
-
-	//
-	// UQ1: More realistic hitboxes for players/bots...
-	//
-	if (ent->s.eType == ET_PLAYER)
-	{
-		if (ent->client->ps.pm_flags & PMF_DUCKED)
-		{
-			ent->r.maxs[2] = ent->client->ps.crouchheight;
-			ent->r.maxs[1] = 8;
-			ent->r.maxs[0] = 8;
-			ent->r.mins[1] = -8;
-			ent->r.mins[0] = -8;
-		}
-		else if (!(ent->client->ps.pm_flags & PMF_DUCKED))
-		{
-			ent->r.maxs[2] = ent->client->ps.standheight-8;
-			ent->r.maxs[1] = 8;
-			ent->r.maxs[0] = 8;
-			ent->r.mins[1] = -8;
-			ent->r.mins[0] = -8;
-		}
 	}
 
 	if ( !(ent->r.svFlags & SVF_BOT) && !g_synchronousClients.integer ) {

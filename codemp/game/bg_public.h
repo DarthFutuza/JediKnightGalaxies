@@ -614,6 +614,7 @@ typedef enum {
 	STAT_CLIENTS_READY,				// bit mask of clients wishing to exit the intermission (FIXME: configstring?)
 	STAT_MAX_HEALTH,				// Maximum health
 	// Jedi Knight Galaxies
+	STAT_MAX_STAMINA,
 	STAT_MAX_SHIELD,				// Maximum shield
 	STAT_AMMO,						// Ammo in current weapon
 	STAT_TOTALAMMO,					// Total ammo
@@ -676,7 +677,7 @@ typedef enum {
 #define	EF_FROZEN			(1<<16)		// JKG: Damage types - frozen
 
 #define	EF_CUSTOMBB				(1<<17)		// Ent uses custom bounding box
-#define	EF_STUNNED			(1<<18)		// JKG: Damage types - stunned
+#define	EF_STUNNED				(1<<18)		// JKG: Damage types - stunned
 
 #define	EF_BODYPUSH				(1<<19)		//rww - claiming this for fullbody push effect
 
@@ -829,6 +830,9 @@ typedef enum {
 	EV_CHANGE_WEAPON,
 	EV_FIRE_WEAPON,
 	EV_ALT_FIRE,
+	EV_HEATCRIT,
+	EV_OVERHEATED,
+	EV_HEATCOOLED,
 	EV_SABER_ATTACK,
 	EV_SABER_HIT,
 	EV_SABER_BLOCK,
@@ -1924,6 +1928,8 @@ int BG_GetGametypeForString( const char *gametype );
 void Q_FSBinaryDump( const char *filename, const void *buffer, size_t len );
 void Q_FSWriteJSON( void *root, fileHandle_t f );
 void Q_FSWriteString( fileHandle_t f, const char *msg );
+
+int Q_FSGetFileListSorted( const char *path, const char *extension, char *listbuf, int bufsize );
 
 bool JKG_ParseHiltFiles( void );
 void JKG_CleanSaberHilts( void );

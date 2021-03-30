@@ -25,6 +25,8 @@ struct jkgBuffCanceling_t
 	qboolean	noCategoryStack;	// if true, don't allow buffs in the same category to stack
 	qboolean	waterRemoval;		// if true, swimming around in water removes the buff
 	qboolean	rollRemoval;		// if true, rolling removes the buff
+	qboolean	shieldRemoval;		// if true, if an active shield is equipped (with at least 1 charge) will remove the buff
+	qboolean	filterRemoval;		// if true, if armor with the filter property is equipped will remove the buff
 
 	std::vector<jkgOtherBuffCancel_t> other;
 };
@@ -62,6 +64,15 @@ struct jkgBuffVisuals_t
 struct jkgBuffPassive_t
 {
 	std::pair<qboolean, int>	overridePmoveType;
+
+	float movemodifier;			// Affects how your movement is affected by the debuff (1.0 is standard, 0.5 is half speed, 2.0 is double speed)
+	float movemodifier_cur;		// Increases/decreases with additional stacks
+	unsigned int maxstacks;		// How many times the movemodifier effect can stack (0 means it doesn't stack and occurs only once)
+	unsigned int stacks;		// How many stacks we currently have
+
+	qboolean empstaggered;		//are your electronics shorted out? (prevents jetpack activation/other things not yet implemented, like maybe hud shutoff?)
+	qboolean resistant;			//does the buff give you resistance? (reduces incoming damage by 50%)
+
 };
 
 /*
@@ -83,8 +94,13 @@ extern jkgBuff_t buffTable[MAX_BUFFS];
 
 void JKG_InitializeBuffs();
 qboolean JKG_HasFreezingBuff(entityState_t* es);
+qboolean JKG_HasFreezingBuff(playerState_t* ps);
+qboolean JKG_HasFreezingBuff(playerState_t& ps);
+qboolean JKG_HasResistanceBuff(playerState_t* ps);
 void JKG_RemoveBuffCategory(const char* buffCategory, playerState_t* ps);
 void JKG_CheckWaterRemoval(playerState_t* ps);
 void JKG_CheckRollRemoval(playerState_t* ps);
+bool JKG_CheckShieldRemoval(playerState_t* ps);
+void JKG_CheckFilterRemoval(playerState_t* ps);
 int JKG_ResolveBuffName(const char* szBuffName);
 void JKG_GetBuffNames(std::vector<std::string>& outBuffNames);

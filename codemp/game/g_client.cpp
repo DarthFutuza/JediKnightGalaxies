@@ -1689,6 +1689,7 @@ qboolean ClientUserinfoChanged( int clientNum ) {
 	int team = TEAM_FREE;
 	int health = 100;
 	int maxHealth = 100;
+	int maxStamina = 100;
 	char *s = NULL;
 	char *value = NULL;
 	char userinfo[MAX_INFO_STRING] = {0};
@@ -1817,6 +1818,11 @@ qboolean ClientUserinfoChanged( int clientNum ) {
 	// 	client->pers.maxHealth = 100;
 	// }
 	client->ps.stats[STAT_MAX_HEALTH] = client->pers.maxHealth;
+	
+
+	//also set maxforce/stamina
+	client->pers.maxStamina = maxStamina;
+	client->ps.stats[STAT_MAX_STAMINA] = client->pers.maxStamina; //force and stamina are the same thing in JKG
 
 	if (level.gametype >= GT_TEAM) {
 		s = Info_ValueForKey( userinfo, "teamoverlay" );
@@ -2662,8 +2668,8 @@ void ClientSpawn(gentity_t *ent, qboolean respawn) {
 	qboolean			use_secondary_spawnpoint = qfalse;
 	int					savedCredits;
 	int					savedAmmo[MAX_AMMO_TYPES] {0};
-	int					savedAmmoTypes[MAX_WEAPON_TABLE_SIZE][MAX_FIREMODES] {0};
-	int					savedClipAmmo[MAX_WEAPON_TABLE_SIZE][MAX_FIREMODES] {0};
+	int					savedAmmoTypes[MAX_WEAPON_TABLE_SIZE][MAX_FIREMODES]{};
+	int					savedClipAmmo[MAX_WEAPON_TABLE_SIZE][MAX_FIREMODES]{};
 	int					savedAmmoType, savedFiringMode;
 	int					savedArmor[MAX_ARMOR];
 
@@ -3047,8 +3053,16 @@ void ClientSpawn(gentity_t *ent, qboolean respawn) {
 	if ( client->pers.maxHealth < 1 || client->pers.maxHealth > maxHealth ) {
 		client->pers.maxHealth = 100;
 	}
+
+	// set max stamina
+	if (client->pers.maxStamina < 1 || client->pers.maxStamina > 100)
+	{
+		client->pers.maxStamina = 100;
+	}
+
 	// clear entity values
 	client->ps.stats[STAT_MAX_HEALTH] = client->pers.maxHealth;
+	client->ps.stats[STAT_MAX_STAMINA] = client->pers.maxStamina;
 
 	client->ps.eFlags = flags;
 	client->mGameFlags = gameFlags;
@@ -3100,6 +3114,8 @@ void ClientSpawn(gentity_t *ent, qboolean respawn) {
 	}
 	else
 	{
+		ent->lastBBTime = level.time; //start the buyback timer
+
 		if (level.startingWeapon[0])
 		{
 			const weaponData_t *weapon = BG_GetWeaponByClassName (level.startingWeapon);
@@ -3228,8 +3244,18 @@ void ClientSpawn(gentity_t *ent, qboolean respawn) {
 	//Do per-spawn force power initialization
 	WP_SpawnInitForcePowers( ent );
 
-	// health will count down towards max_health
-	ent->health = client->ps.stats[STAT_HEALTH] = client->ps.stats[STAT_MAX_HEALTH];
+	//check if we need to give more hp due to items
+	for (auto it = ent->inventory->begin(); it != ent->inventory->end(); ++it) 
+	{
+		if (it->equipped && ( it->id->itemType == ITEM_ARMOR || it->id->itemType == ITEM_CLOTHING) )
+		{
+			ent->client->ps.stats[STAT_MAX_HEALTH] += it->id->armorData.pArm->hp;
+			client->ps.stats[STAT_MAX_STAMINA] += it->id->armorData.pArm->stamina;
+		}
+	}
+	ent->health = client->ps.stats[STAT_HEALTH] = client->ps.stats[STAT_MAX_HEALTH];  // health will count down towards max_health (if it exceeds)
+	
+	ent->playerState->forcePower = client->ps.stats[STAT_MAX_STAMINA];  //most common usage is: pm->ps->forcePower
 
 	G_SetOrigin( ent, spawn_origin );
 	VectorCopy( spawn_origin, client->ps.origin );
@@ -3413,15 +3439,21 @@ void ClientSpawn(gentity_t *ent, qboolean respawn) {
 	}*/
 
 	ent->client->ps.heat = 0.0f;		//set initial heat on spawn
-	if (ent->client->ps.maxHeat < 1)
+	ent->client->ps.overheated = false;
+	if (ent->client->ps.maxHeat < 1 || ent->client->ps.heatThreshold < 1)
 	{
 		const weaponData_t* wp = GetWeaponData(ent->client->ps.weapon, ent->client->ps.weaponVariation);
 		ent->client->ps.maxHeat = wp->firemodes[ent->client->ps.firingMode].maxHeat;
+		ent->client->ps.heatThreshold = wp->firemodes[ent->client->ps.firingMode].heatThreshold;
 
-		//double check the weapon has a maxHeat setting if not set it to 100.
+		//double check the weapon has a maxHeat and heatThreshold settings, if not set it to 100 and 75%.
 		if (ent->client->ps.maxHeat < 1)
 			ent->client->ps.maxHeat = 100;
+
+		if (ent->client->ps.heatThreshold < 1)
+			ent->client->ps.heatThreshold = ent->client->ps.maxHeat * 0.75;
 	}
+
 
 	GLua_Hook_PlayerSpawned(ent->s.number);
 
@@ -3524,6 +3556,10 @@ void ClientDisconnect( int clientNum ) {
 	}
 
 	if (ent->inventory != nullptr) {
+		ent->inventory->clear();
+	}
+	if (ent->bb_inventory != nullptr)
+	{
 		ent->inventory->clear();
 	}
 	if (ent->assists != nullptr) {

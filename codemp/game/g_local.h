@@ -96,6 +96,7 @@ extern vec3_t gPainPoint;
 #define	FL_DONT_SHOOT			0x00040000
 #define FL_SHIELDED				0x00080000
 #define FL_UNDYING				0x00100000	// takes damage down to 1, but never dies
+#define FL_NO_DEBUFF			0x00200000	// target is immune to being debuffed
 
 //ex-eFlags -rww
 #define	FL_BOUNCE				0x00100000		// for missiles
@@ -453,6 +454,7 @@ struct gentity_s {
 	gentity_t   *damagePlum;
 	int			damagePlumTime;
 	int			lastHealTime;
+	int			lastBBTime;		// Determines when the last buyback time for inventory items is.
 	buffInfo_t	buffData[PLAYERBUFF_BITS];
 
 	int			grenadeCookTime;	// For cookable grenades.
@@ -460,6 +462,10 @@ struct gentity_s {
 	int			grenadeVariation;	// The cookable grenade variation that has been set (it can explode in your pocket).
 
 	char		treasureclass[MAX_QPATH];
+
+	float		decayRate;			// Helps determine how much dmg should be lost when firing beyond the weapon's range.
+	float		maxRange;			// The weapon's absolute maximum range (weapon does 0 dmg at this range). 0 == no decayRate
+	float		range;				// The weapon's recommended range (firing beyond this reduces damage)
 
 	// For scripted NPCs
 	char		*npcscript;
@@ -503,6 +509,7 @@ struct gentity_s {
 	//
 	/////////////////////////////////////////
 	std::vector<itemInstance_t>* inventory;
+	std::vector<std::pair<itemData_t*, int>>* bb_inventory; //keeps track of recently purchased items
 	std::vector<entityHitRecord_t>* assists;
 };
 
@@ -627,6 +634,7 @@ typedef struct clientPersistant_s {
 	char		netname_nocolor[MAX_NETNAME];
 	int			netnameTime;				// Last time the name was changed
 	int			maxHealth;			// for handicapping
+	int			maxStamina;
 	int			enterTime;			// level.time the client entered the game
 	playerTeamState_t teamState;	// status in teamplay games
 	int			voteCount;			// to prevent people from constantly calling votes
@@ -1518,6 +1526,7 @@ qboolean	 WP_GetWeaponGravity( gentity_t *ent, int firemode );
 int			 WP_GetWeaponMOD( gentity_t *ent, int firemode );
 int			 WP_GetWeaponSplashMOD( gentity_t *ent, int firemode );
 float		 WP_GetWeaponRange( gentity_t *ent, int firemode );
+float		 WP_GetWeaponDecayRate(gentity_t* ent, int firemode);
 float		 WP_GetWeaponSpeed( gentity_t *ent, int firemode );
 double		 WP_GetWeaponSplashRange( gentity_t *ent, int firemode );
 

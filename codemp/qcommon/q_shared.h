@@ -1787,7 +1787,9 @@ typedef struct playerState_s {
 	int				firingMode;
 	int				ammoType;
 	float			heat;				//current weapon heat value
-	int				maxHeat;			//current weapon maxheat value
+	int				maxHeat;			//current weapon maxheat value    (actual max)
+	int				heatThreshold;		//current weapon's heat threshold (recommended max)
+	qboolean		overheated;			// If true, this weapon is currently overheated and is waiting for heatThreshold to reset
 
 	unsigned int	ironsightsTime;
 	unsigned int	ironsightsDebounceStart;
@@ -2437,6 +2439,19 @@ void Q_RGBCopy( vec4_t *output, vec4_t source );
 void getGalacticTimeStamp(char* outStr);	//Gets current time    to use : char myarray[17]; getBuildTimeStamp(myarray); 
 qboolean StringContainsWord(const char *haystack, const char *needle);
 qboolean Q_stratt( char *dest, unsigned int iSize, char *source );
+
+typedef struct stringList_s stringList_t;
+struct stringList_s
+{
+	char *string;
+
+	stringList_t *next;
+};
+
+void stringList_addSorted( stringList_t **el, const char *stringIn );
+void stringList_free( stringList_t **el );
+int stringList_writeToBuffer( stringList_t *el, char *buffer, int bufferSize );
+void sortStrings( int *numStrings, char *stringList, int bufsize );
 
 // Performance analysis
 typedef struct

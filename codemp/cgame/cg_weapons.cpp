@@ -223,7 +223,6 @@ CG_MapTorsoToWeaponFrame
 =================
 */
 static int CG_MapTorsoToWeaponFrame( const clientInfo_t *ci, int frame, int animNum ) {
-	float animspeed = 1.0f;
 	const weaponData_t *weaponData = GetWeaponData(cg.predictedPlayerState.weapon, cg.predictedPlayerState.weaponVariation);
 	animation_t *animations = bgHumanoidAnimations;
 
@@ -1287,7 +1286,15 @@ void CG_NextWeapon_f( void )
 
 	//no switching while cooking nades
 	if (cg.jkg_grenadeCookTimer)
+	{
 		return;
+	}
+
+	//overheated, you can't just put the gun in your pocket
+	if (cg.snap->ps.overheated)
+	{
+		return;
+	}
 
 	while(numIterations < MAX_ACI_SLOTS)
 	{
@@ -1378,7 +1385,15 @@ void CG_PrevWeapon_f( void )
 
 	//no switching while cooking nades
 	if (cg.jkg_grenadeCookTimer)
+	{
 		return;
+	}
+
+	//overheated, you can't just put the gun in your pocket
+	if (cg.snap->ps.overheated)
+	{
+		return;
+	}
 
 	while(numIterations < MAX_ACI_SLOTS)
 	{
@@ -1497,6 +1512,12 @@ void JKG_CG_FillACISlot(int itemNum, int slot)
 		return;
 	}
 
+	if (JKG_HasFreezingBuff(cg.predictedPlayerState)) //no changing equipment while stunned/frozen etc
+	{
+		Com_Printf("You cannot change your equipment right now.\n");
+		return;
+	}
+
 	// Find out if we have the item already in our ACI
 	for (int i = 0; i < MAX_ACI_SLOTS; i++) {
 		if (cg.playerACI[i] == itemNum) {
@@ -1574,11 +1595,21 @@ void JKG_CG_ClearACISlot(int slot)
 		return;
 	}
 
+	if (JKG_HasFreezingBuff(cg.predictedPlayerState)) //no changing equipment while stunned/frozen etc
+	{
+		Com_Printf("You cannot change your equipment right now.\n");
+		return;
+	}
+
 	if (cg.playerACI[slot] > 0 && cg.playerACI[slot] < cg.playerInventory->size()) {
 		itemInstance_t* item = &(*cg.playerInventory)[cg.playerACI[slot]];
 		if (item->id->itemType == ITEM_SHIELD) {
 			// inform the server that we've unequipped our shield
 			trap->SendClientCommand("unequipShield");
+		}
+		if (item->id->itemType == ITEM_JETPACK) {
+			// inform the server that we've unequipped our jetpack
+			trap->SendClientCommand("unequipJetpack");
 		}
 	}
 
@@ -1648,7 +1679,15 @@ void CG_Weapon_f( void ) {
 
 	//no switching while cooking nades
 	if (cg.jkg_grenadeCookTimer)
+	{
 		return;
+	}
+
+	//overheated, you can't just put the gun in your pocket
+	if (cg.snap->ps.overheated)
+	{
+		return;
+	}
 
 	num = atoi( CG_Argv( 1 ) );
 	if(num < 0 || num > 9)
@@ -2592,7 +2631,6 @@ void JKG_RenderGenericWeaponWorld ( centity_t *cent, const weaponDrawData_t *wea
 		if ( weaponData->weaponRender.generic.muzzleEffect )
 		{
 			matrix3_t axis;
-			int boltNum = trap->G2API_AddBolt(cent->ghoul2, 1, "*flash");
 			AnglesToAxis(cent->lerpAngles, axis);
 			trap->FX_PlayEntityEffectID(muzzleEffect,
 				flashOrigin, axis, cent->boltInfo, cent->currentState.number, -1, -1);

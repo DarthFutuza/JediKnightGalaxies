@@ -353,10 +353,9 @@ void BG_ReceivedItemPacket(itemPacketType_t packetType) {
 				{
 					if (i != invID && (*cg.playerInventory)[i].id->itemType == ITEM_ARMOR)
 					{
-						if ((*cg.playerInventory)[i].id->armorData.pArm->slot == (*cg.playerInventory)[invID].id->armorData.pArm->slot)
+						if ((*cg.playerInventory)[i].id->armorData.pArm->slot == (*cg.playerInventory)[invID].id->armorData.pArm->slot) //if its equipped and takes up the same slot type, we can only have one per slot
 						{
 							(*cg.playerInventory)[i].equipped = qfalse;
-							break;
 						}
 					}
 				}
@@ -510,7 +509,6 @@ void BG_ReceivedTradePacket(itemTradePacketType_t packet) {
 			break;
 		case IPT_TRADESINGLE:
 			{
-				int credits = atoi(CG_Argv(2));
 				int itemID = atoi(CG_Argv(3));
 				int quantity = atoi(CG_Argv(4));
 				itemInstance_t item = BG_ItemInstance(itemID, quantity);
@@ -801,6 +799,7 @@ void BG_GiveItemNonNetworked(itemInstance_t item)
 			{
 				//we found another special item equipped - remove it
 				cg.playerACI[i] = -1;
+				nFreeACISlot = i;
 				continue;
 			}
 			if(bInACIAlready && nFreeACISlot >= 0) 
@@ -1015,6 +1014,17 @@ qboolean BG_ConsumeItem(gentity_t* ent, int itemStackNum) {
 	consumeAmount = item->id->consumableData.consumeAmount;
 	if (consumeAmount > item->quantity) {
 		// Not enough quantity to consume this item
+		return qfalse;
+	}
+	
+
+	if(item->id->consumableData.partHealthReq && ent->health >= ent->client->ps.stats[STAT_MAX_HEALTH] )
+	{
+		return qfalse;
+	}
+
+	if (item->id->consumableData.partStaminaReq && ent->playerState->forcePower >= ent->client->ps.stats[STAT_MAX_STAMINA] )
+	{
 		return qfalse;
 	}
 
@@ -1240,6 +1250,14 @@ static bool BG_LoadItem(const char *itemFilePath, itemData_t *itemData)
 		// consumeAmount controls the amount of items in the stack that get consumed
 		jsonNode = cJSON_GetObjectItem(json, "consumeAmount");
 		itemData->consumableData.consumeAmount = cJSON_ToIntegerOpt(jsonNode, 1);
+
+		// partHealthReq only allows the item to be consumed if the entity has partial health
+		jsonNode = cJSON_GetObjectItem(json, "partHealthReq");
+		itemData->consumableData.partHealthReq = (qboolean)cJSON_ToBooleanOpt(jsonNode, false);
+
+		// partStaminaReq only allows the item to be consumed if the entity lacks stamina
+		jsonNode = cJSON_GetObjectItem(json, "partStaminaReq");
+		itemData->consumableData.partStaminaReq = (qboolean)cJSON_ToBooleanOpt(jsonNode, false);
 	}
 	else if (itemData->itemType == ITEM_SHIELD) {
 		memset(&itemData->shieldData, 0, sizeof(itemData->shieldData));
@@ -1304,7 +1322,7 @@ static bool BG_LoadItems(void)
 {
 	int i, j;
 	char itemFiles[8192];
-	int numFiles = trap->FS_GetFileList("ext_data/items/", ".itm", itemFiles, sizeof(itemFiles));
+	int numFiles = Q_FSGetFileListSorted("ext_data/items/", ".itm", itemFiles, sizeof(itemFiles));
 	const char *itemFile = itemFiles;
 	int successful = 0;
 	int failed = 0;

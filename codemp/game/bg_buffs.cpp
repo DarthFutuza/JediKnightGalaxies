@@ -38,6 +38,62 @@ qboolean JKG_HasFreezingBuff(entityState_t* es)
 	return qfalse;
 }
 
+qboolean JKG_HasFreezingBuff(playerState_t* ps) //ps version
+{
+	for (int i = 0; i < PLAYERBUFF_BITS; i++)
+	{
+		if (ps->buffsActive & (1 << i))
+		{
+			jkgBuff_t* pBuff = &buffTable[ps->buffs[i].buffID];
+			if (pBuff->passive.overridePmoveType.first)
+			{
+				if (pBuff->passive.overridePmoveType.second == PM_FREEZE ||
+					pBuff->passive.overridePmoveType.second == PM_LOCK)
+				{
+					return qtrue;
+				}
+			}
+		}
+	}
+	return qfalse;
+}
+
+qboolean JKG_HasFreezingBuff(playerState_t &ps) //ps ref version
+{
+	for (int i = 0; i < PLAYERBUFF_BITS; i++)
+	{
+		if (ps.buffsActive & (1 << i))
+		{
+			jkgBuff_t* pBuff = &buffTable[ps.buffs[i].buffID];
+			if (pBuff->passive.overridePmoveType.first)
+			{
+				if (pBuff->passive.overridePmoveType.second == PM_FREEZE ||
+					pBuff->passive.overridePmoveType.second == PM_LOCK)
+				{
+					return qtrue;
+				}
+			}
+		}
+	}
+	return qfalse;
+}
+
+qboolean JKG_HasResistanceBuff(playerState_t* ps)
+{
+	for (int i = 0; i < PLAYERBUFF_BITS; i++)
+	{
+		if (ps->buffsActive & (1 << i))
+		{
+			jkgBuff_t* pBuff = &buffTable[ps->buffs[i].buffID];
+			if (pBuff->passive.resistant)
+			{
+				return qtrue;
+			}
+		}
+	}
+	return qfalse;
+}
+
 // Removes all buffs of a certain category on a playerstate
 void JKG_RemoveBuffCategory(const char* buffCategory, playerState_t* ps)
 {
@@ -79,6 +135,48 @@ void JKG_CheckRollRemoval(playerState_t* ps)
 		{
 			jkgBuff_t* pBuff = &buffTable[ps->buffs[i].buffID];
 			if (pBuff->cancel.rollRemoval)
+			{
+				ps->buffsActive &= ~(1 << i); // remove this buff
+			}
+		}
+	}
+}
+
+//Removes all buffs that have the shieldRemoval flag set, returns true if has stunlock, false if normal
+bool JKG_CheckShieldRemoval(playerState_t* ps)
+{
+	qboolean stunlocked = false;
+	for (int i = 0; i < PLAYERBUFF_BITS; i++)
+	{
+		if (ps->buffsActive & (1 << i))
+		{
+			jkgBuff_t* pBuff = &buffTable[ps->buffs[i].buffID];
+			if (pBuff->cancel.shieldRemoval)
+			{
+				if (pBuff->passive.overridePmoveType.first)
+				{
+					if (pBuff->passive.overridePmoveType.second == PM_FREEZE ||
+						pBuff->passive.overridePmoveType.second == PM_LOCK)
+					{
+						stunlocked = true;
+					}
+				}
+				ps->buffsActive &= ~(1 << i); // remove this buff
+			}
+		}
+	}
+	return stunlocked;
+}
+
+//Removes all buffs that have the filterRemoval flag set
+void JKG_CheckFilterRemoval(playerState_t* ps)
+{
+	for (int i = 0; i < PLAYERBUFF_BITS; i++)
+	{
+		if (ps->buffsActive & (1 << i))
+		{
+			jkgBuff_t* pBuff = &buffTable[ps->buffs[i].buffID];
+			if (pBuff->cancel.filterRemoval)
 			{
 				ps->buffsActive &= ~(1 << i); // remove this buff
 			}
@@ -167,6 +265,12 @@ static qboolean JKG_ParseBuffCanceling(cJSON* json, jkgBuff_t* pBuff)
 	child = cJSON_GetObjectItem(json, "rollRemoval");
 	pBuff->cancel.rollRemoval = cJSON_ToBooleanOpt(child, false);
 
+	child = cJSON_GetObjectItem(json, "shieldRemoval");
+	pBuff->cancel.shieldRemoval = cJSON_ToBooleanOpt(child, false);
+
+	child = cJSON_GetObjectItem(json, "filterRemoval");
+	pBuff->cancel.filterRemoval = cJSON_ToBooleanOpt(child, false);
+
 	child = cJSON_GetObjectItem(json, "cancelOther");
 	if (child)
 	{
@@ -221,6 +325,27 @@ static qboolean JKG_ParseBuffPassiveData(cJSON* json, jkgBuff_t* pBuff)
 	{
 		pBuff->passive.overridePmoveType.first = qfalse;
 	}
+
+	child = cJSON_GetObjectItem(json, "movemodifier");
+	pBuff->passive.movemodifier = cJSON_ToNumberOpt(child, 1.0);  //--futuza: todo aid more movement type modifiers here, this one only effects overall total speed
+	if (pBuff->passive.movemodifier < 0)
+		pBuff->passive.movemodifier = 0.0;
+
+	if (pBuff->passive.movemodifier != 1.0)
+	{
+		pBuff->passive.movemodifier_cur = pBuff->passive.movemodifier;  //set initial movemodifier
+		child = cJSON_GetObjectItem(json, "maxstacks");
+		int temp = cJSON_ToIntegerOpt(child, 0);  //0 == doesn't stack
+		pBuff->passive.maxstacks = temp < 0 ? 0 : temp; 	
+		pBuff->passive.stacks = 0; //initialize stacks
+	}
+
+	child = cJSON_GetObjectItem(json, "empstaggered");
+	pBuff->passive.empstaggered = cJSON_ToBooleanOpt(child, false);
+
+	child = cJSON_GetObjectItem(json, "resistant");
+	pBuff->passive.resistant = cJSON_ToBooleanOpt(child, false);
+
 	return qtrue;
 }
 
