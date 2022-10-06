@@ -17,7 +17,7 @@
             "firemode":     "models/weapons/E-11b_Carbine/firemode"
         },
         
-        "gunposition":      "11.0 -2.0 -6.5",
+        "gunposition":      "14.0 -4.0 -8.0",
         "ironsightsposition": "13.0 0.0 -4.9",
         "ironsightsfov": "70",
 		"barrelCount": "3",
@@ -93,7 +93,7 @@
         "projectileclass": "blaster_proj",
         "meansofdeath": "MOD_BLASTER",
         "splashmeansofdeath": "MOD_BLASTER",
-	"ammobase": "AMMO_POWERPACK_L",
+	"ammobase": "AMMO_POWERPACK_M",
 	"ammodefault": "AMMO_POWERPACK_M",
         "clipSize":              60,
         "accuracy": {
@@ -103,7 +103,8 @@
         	"maxAccuracyAdd": 80,
         	"sightsModifier": 0.4
         },
-	"heatGenerated": 5
+	"heatGenerated": 4.25,
+    "maxHeat":	150
     },
     
     "firemode1": {
@@ -117,7 +118,7 @@
         "projectilespeed": 4000.0,
         "projectileclass": "blaster_proj",
         "meansofdeath": "MOD_BLASTER",
-	"ammobase": "AMMO_POWERPACK_L",
+	"ammobase": "AMMO_POWERPACK_M",
 	"ammodefault": "AMMO_POWERPACK_M",
         "clipSize":              60,
         "accuracy": {
@@ -127,14 +128,15 @@
         	"maxAccuracyAdd": 60,
         	"sightsModifier": 0.35
         },
-	"heatGenerated": 5
+	"heatGenerated": 3,
+    "maxHeat":	150
     },
 	
 	"firemode2": {
         "damage":       18,
         "ammocost":     1,
-        "firedelay":    90,
-	"burstshotdelay":	500,
+        "firedelay":    500,
+	"burstshotdelay":	90,
         "firingtype":   "burst",
 		"shotsperburst": 4,
         "range":        3500.0,
@@ -143,7 +145,7 @@
         "projectilespeed": 4000.0,
         "projectileclass": "blaster_proj",
         "meansofdeath": "MOD_BLASTER",
-	"ammobase": "AMMO_POWERPACK_L",
+	"ammobase": "AMMO_POWERPACK_M",
 	"ammodefault": "AMMO_POWERPACK_M",
         "clipSize":              60,
         "accuracy": {
@@ -152,7 +154,9 @@
         	"msToDrainAccuracy": 286,
         	"maxAccuracyAdd": 60,
         	"sightsModifier": 0.35
-        }
+        },
+    "heatGenerated": 2.8,
+    "maxHeat":	150
     },
     
     "playeranims": {

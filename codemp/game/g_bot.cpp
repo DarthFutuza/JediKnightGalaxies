@@ -750,6 +750,7 @@ void G_CheckVendorNPCs( void )
 				case CLASS_WEAPONS_VENDOR:
 				case CLASS_ARMOR_VENDOR:
 				case CLASS_SUPPLIES_VENDOR:
+				case CLASS_EQUIPMENT_VENDOR:
 				case CLASS_FOOD_VENDOR:
 				case CLASS_MEDICAL_VENDOR:
 				case CLASS_GAMBLER_VENDOR:
@@ -766,6 +767,7 @@ void G_CheckVendorNPCs( void )
 					case CLASS_WEAPONS_VENDOR:
 					case CLASS_ARMOR_VENDOR:
 					case CLASS_SUPPLIES_VENDOR:
+					case CLASS_EQUIPMENT_VENDOR:
 					case CLASS_FOOD_VENDOR:
 					case CLASS_MEDICAL_VENDOR:
 					case CLASS_GAMBLER_VENDOR:
@@ -812,6 +814,7 @@ void G_CheckVendorNPCs( void )
 				return; // Try again on next check...
 
 			// Find a new place to spawn, the first one was dangerous
+			Rand_Init(time(0)); //reseed 
 			waypoint = irand(0, gWPNum - 1);
 			tries++;
 		}
@@ -836,7 +839,7 @@ void G_CheckVendorNPCs( void )
 
 		char treasure[] = "genericvendor";
 		SP_NPC_spawner_tc(npc, treasure);
-		//SP_NPC_spawner(npc);
+		//SP_NPC_spawner(npc);		//not working?
 		
 	}
 

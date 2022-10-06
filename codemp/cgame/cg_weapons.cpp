@@ -223,7 +223,6 @@ CG_MapTorsoToWeaponFrame
 =================
 */
 static int CG_MapTorsoToWeaponFrame( const clientInfo_t *ci, int frame, int animNum ) {
-	float animspeed = 1.0f;
 	const weaponData_t *weaponData = GetWeaponData(cg.predictedPlayerState.weapon, cg.predictedPlayerState.weaponVariation);
 	animation_t *animations = bgHumanoidAnimations;
 
@@ -1285,6 +1284,18 @@ void CG_NextWeapon_f( void )
 		return;
 	}
 
+	//no switching while cooking nades
+	if (cg.jkg_grenadeCookTimer)
+	{
+		return;
+	}
+
+	//overheated, you can't just put the gun in your pocket
+	if (cg.snap->ps.overheated)
+	{
+		return;
+	}
+
 	while(numIterations < MAX_ACI_SLOTS)
 	{
 		if(desiredWeaponSelect >= MAX_ACI_SLOTS)
@@ -1368,6 +1379,18 @@ void CG_PrevWeapon_f( void )
 	usercmd_t ucmd;
 	trap->GetUserCmd(current, &ucmd);
 	if (BG_IsSprinting(&cg.predictedPlayerState, &ucmd, qfalse))
+	{
+		return;
+	}
+
+	//no switching while cooking nades
+	if (cg.jkg_grenadeCookTimer)
+	{
+		return;
+	}
+
+	//overheated, you can't just put the gun in your pocket
+	if (cg.snap->ps.overheated)
 	{
 		return;
 	}
@@ -1489,6 +1512,12 @@ void JKG_CG_FillACISlot(int itemNum, int slot)
 		return;
 	}
 
+	if (JKG_HasFreezingBuff(cg.predictedPlayerState)) //no changing equipment while stunned/frozen etc
+	{
+		Com_Printf("You cannot change your equipment right now.\n");
+		return;
+	}
+
 	// Find out if we have the item already in our ACI
 	for (int i = 0; i < MAX_ACI_SLOTS; i++) {
 		if (cg.playerACI[i] == itemNum) {
@@ -1501,13 +1530,14 @@ void JKG_CG_FillACISlot(int itemNum, int slot)
 
 	// If the item is a shield, then we need to remove all other shields in our ACI and inform the server that we equipped shield
 	// Unless of course we already had this item in the ACI, in which case we do nothing
+	bool activateJetpack = false, activateShield = false;
 	if (item->itemType == ITEM_SHIELD && !alreadyInACI) {
 		JKG_RemoveACIItemsOfType(ITEM_SHIELD);
-		trap->SendClientCommand(va("equipShield %i", itemNum));
+		activateShield = true;
 	}
 	else if (item->itemType == ITEM_JETPACK && !alreadyInACI) {
 		JKG_RemoveACIItemsOfType(ITEM_JETPACK);
-		trap->SendClientCommand(va("equipJetpack %i", itemNum));
+		activateJetpack = true;
 	}
 	else if (cg.playerACI[slot] > 0 && cg.playerACI[slot] < cg.playerInventory->size()) {
 		// Check to see if we're overwriting a shield/jetpack (if so, unequip it)
@@ -1530,12 +1560,19 @@ void JKG_CG_FillACISlot(int itemNum, int slot)
 			}
 		}
 	}
-
-	if (slot == -1) {
-		trap->Print("Couldn't assign %i to ACI, ACI is full\n", itemNum);
-		return;
+	//ACI is full, replace whatever is at slot 0
+	if (slot == -1)
+	{
+		trap->Print("ACI is full, replacing slot 0 with requested item.\n");
+		JKG_CG_ClearACISlot(0); //remove what's at slot 0
+		slot = 0;
 	}
 
+	//if we need to activate/equip special items do so now
+	if(activateJetpack)
+		trap->SendClientCommand(va("equipJetpack %i", itemNum));
+	if (activateShield)
+		trap->SendClientCommand(va("equipShield %i", itemNum));
 
 	cg.playerACI[slot] = itemNum;
 }
@@ -1561,8 +1598,14 @@ void JKG_CG_ACIPostFix(int itemSlot)
 
 void JKG_CG_ClearACISlot(int slot)
 {
-	if (slot < 0 || slot >= MAX_ACI_SLOTS)
+	if (slot < 0 || slot > MAX_ACI_SLOTS)
 	{
+		return;
+	}
+
+	if (JKG_HasFreezingBuff(cg.predictedPlayerState)) //no changing equipment while stunned/frozen etc
+	{
+		Com_Printf("You cannot change your equipment right now.\n");
 		return;
 	}
 
@@ -1571,6 +1614,10 @@ void JKG_CG_ClearACISlot(int slot)
 		if (item->id->itemType == ITEM_SHIELD) {
 			// inform the server that we've unequipped our shield
 			trap->SendClientCommand("unequipShield");
+		}
+		if (item->id->itemType == ITEM_JETPACK) {
+			// inform the server that we've unequipped our jetpack
+			trap->SendClientCommand("unequipJetpack");
 		}
 	}
 
@@ -1638,6 +1685,18 @@ void CG_Weapon_f( void ) {
 		return;
 	}
 
+	//no switching while cooking nades
+	if (cg.jkg_grenadeCookTimer)
+	{
+		return;
+	}
+
+	//overheated, you can't just put the gun in your pocket
+	if (cg.snap->ps.overheated)
+	{
+		return;
+	}
+
 	num = atoi( CG_Argv( 1 ) );
 	if(num < 0 || num > 9)
 	{
@@ -1660,8 +1719,10 @@ void CG_Weapon_f( void ) {
 		switch(itemType)
 		{
 			case ITEM_CONSUMABLE:
+			case ITEM_JETPACK:
+			case ITEM_SHIELD:
 				{
-					trap->SendConsoleCommand(va("inventoryUse %i", cg.playerACI[num]));
+					trap->SendConsoleCommand(va("inventoryUse %i", cg.playerACI[num]));		//this calls JKG_Cmd_ItemAction_f(), edit that for special behaviors --Futuza
 				}
 				break;
 		}
@@ -1677,7 +1738,7 @@ void CG_Weapon_f( void ) {
 			trap->SendClientCommand("togglesaber");
 		}
 		// Set our holster state
-		cg.holsterState = (cg.holsterState) ? qfalse : qtrue;
+		(*cg.playerInventory)[cg.playerACI[num]].id->weaponData.holsterState = ((*cg.playerInventory)[cg.playerACI[num]].id->weaponData.holsterState) ? qfalse : qtrue;
 		doWeaponNotify = qfalse;
 	}
 
@@ -2357,9 +2418,9 @@ static void JKG_BounceSpecialGrenade ( const centity_t *cent, const weaponDrawDa
 
 static void JKG_RenderGenericProjectileMiss ( const centity_t* cent, const weaponDrawData_t *weaponData, const ammo_t* ammoData, const vec3_t origin, const vec3_t normal )
 {
-	if (JKG_SimpleAmmoOverridePresent(ammoData->visualOverrides.projectile.impactEffect))
+	if (JKG_SimpleAmmoOverridePresent(ammoData->visualOverrides.projectile.missEffect))
 	{
-		trap->FX_PlayEffectID(trap->FX_RegisterEffect(ammoData->visualOverrides.projectile.impactEffect.second.c_str()),
+		trap->FX_PlayEffectID(trap->FX_RegisterEffect(ammoData->visualOverrides.projectile.missEffect.second.c_str()),
 			(float*) origin, (float*) normal, -1, -1, false);
 	}
 	else if ( weaponData->projectileMiss.generic.impactEffect )
@@ -2555,6 +2616,31 @@ void JKG_RenderGenericWeaponWorld ( centity_t *cent, const weaponDrawData_t *wea
 				s->constantLight
 			);
 		}
+
+		//--futuza: add red hot barrel tips here, eg:
+		//if (cg.snap->ps.heat > cg.snap->ps.heatThreshold)
+
+		//draw steam efx on barrel end if heat is critical
+		if (cg.snap->ps.heat > cg.snap->ps.heatThreshold)
+		{
+			hasMuzzleLocation = qtrue;
+			JKG_GetMuzzleLocation(cent, angles, flashOrigin, flashDirection);
+
+			matrix3_t flashAxis;
+			AnglesToAxis(cent->lerpAngles, flashAxis);
+
+			fxHandle_t steamEfx = cgs.effects.mHeatSteam;
+			if (cg.snap->ps.overheated)
+				steamEfx = cgs.effects.mOverheatSteam; //bigger steam we've overheated completely!
+
+			JKG_RenderOverheatEffect(
+				cent,
+				steamEfx,
+				flashOrigin,
+				flashAxis,
+				isLocalPlayer,
+				qfalse);
+		}
 	}
 
 	VectorClear (cg.lastFPFlashPoint);
@@ -2578,7 +2664,6 @@ void JKG_RenderGenericWeaponWorld ( centity_t *cent, const weaponDrawData_t *wea
 		if ( weaponData->weaponRender.generic.muzzleEffect )
 		{
 			matrix3_t axis;
-			int boltNum = trap->G2API_AddBolt(cent->ghoul2, 1, "*flash");
 			AnglesToAxis(cent->lerpAngles, axis);
 			trap->FX_PlayEntityEffectID(muzzleEffect,
 				flashOrigin, axis, cent->boltInfo, cent->currentState.number, -1, -1);
@@ -2824,7 +2909,7 @@ qboolean JKG_ShouldRenderWeaponViewModel ( const centity_t *cent, const playerSt
 	return qtrue;
 }
 
-static void JKG_RenderGenericWeaponView ( const weaponDrawData_t *weaponData )
+static void JKG_RenderGenericWeaponView ( const weaponDrawData_t *weaponData, const ammo_t* ammoData )
 {
 	static const char *barrelTags[] = {
 		"tag_barrel",
@@ -2832,7 +2917,6 @@ static void JKG_RenderGenericWeaponView ( const weaponDrawData_t *weaponData )
 		"tag_barrel3",
 		"tag_barrel4"
 	};
-
 	const playerState_t *ps = &cg.predictedPlayerState;
 	centity_t *cent = &cg_entities[ps->clientNum];
 	const entityState_t *s = &cent->currentState;
@@ -2847,7 +2931,6 @@ static void JKG_RenderGenericWeaponView ( const weaponDrawData_t *weaponData )
 	refEntity_t hand;
 	refEntity_t gun;
 	refEntity_t muzzle;
-
 	int i;
 	refEntity_t barrel;
 
@@ -2977,7 +3060,14 @@ static void JKG_RenderGenericWeaponView ( const weaponDrawData_t *weaponData )
 
 	VectorCopy (muzzle.origin, cg.lastFPFlashPoint);
 
-	if ( s->modelindex2 == WEAPON_CHARGING && weaponData->weaponRender.generic.chargingEffect )
+	fxHandle_t chargeEffect = weaponData->weaponRender.generic.chargingEffect;
+	//apply muzzle effects from ammo if present
+	if (JKG_SimpleAmmoOverridePresent(ammoData->visualOverrides.chargingEffect))
+	{
+		chargeEffect = trap->FX_RegisterEffect(ammoData->visualOverrides.chargingEffect.second.c_str());
+	}
+
+	if ( s->modelindex2 == WEAPON_CHARGING && chargeEffect)
 	{
 		JKG_RenderChargingEffect (
 			cent,
@@ -2987,6 +3077,25 @@ static void JKG_RenderGenericWeaponView ( const weaponDrawData_t *weaponData )
 			qtrue,
 			qtrue,
 			s->constantLight);
+	}
+
+	//--futuza: add red hot barrel tips here, eg:
+	//if (cg.snap->ps.heat > cg.snap->ps.heatThreshold)
+
+	//heating up, do steam efx
+	if (cg.snap->ps.heat > cg.snap->ps.heatThreshold)
+	{
+		fxHandle_t steamEfx = cgs.effects.mHeatSteam;
+		if(cg.snap->ps.overheated)
+			steamEfx = cgs.effects.mOverheatSteam; //bigger steam
+
+		JKG_RenderOverheatEffect(
+			cent,
+			steamEfx,
+			muzzle.origin,
+			muzzle.axis,
+			qtrue,
+			qtrue);
 	}
 
 	// TODO: At some point, I want to put this into a common function which the
@@ -3000,24 +3109,46 @@ static void JKG_RenderGenericWeaponView ( const weaponDrawData_t *weaponData )
 	cent->muzzleFlashCount = cent->shotCount;
 	cent->shotCountOverflowed = qfalse;
 
-	if ( weaponData->weaponRender.generic.muzzleEffect )
+	fxHandle_t muzzleEffect = weaponData->weaponRender.generic.muzzleEffect;
+	double muzzleLightIntensity = weaponData->weaponRender.generic.muzzleLightIntensity;
+
+	if (JKG_SimpleAmmoOverridePresent(ammoData->visualOverrides.muzzleEffect))
+	{
+		muzzleEffect = trap->FX_RegisterEffect(ammoData->visualOverrides.muzzleEffect.second.c_str());
+	}
+	JKG_ApplyAmmoOverride(muzzleLightIntensity, ammoData->visualOverrides.muzzleLightIntensity);
+
+	if (muzzleEffect)
 	{
 		trap->FX_PlayEntityEffectID (
-			weaponData->weaponRender.generic.muzzleEffect,
+			muzzleEffect,
 			muzzle.origin, muzzle.axis,
 			-1, -1, -1, -1
 		);
 	}
 
-	if ( weaponData->weaponRender.generic.muzzleLightIntensity > 0.0f )
+	if (muzzleLightIntensity > 0.0f )
 	{
-		trap->R_AddLightToScene (
-			muzzle.origin,
-			weaponData->weaponRender.generic.muzzleLightIntensity + (rand() & 31),
-			weaponData->weaponRender.generic.muzzleLightColor[0],
-			weaponData->weaponRender.generic.muzzleLightColor[1],
-			weaponData->weaponRender.generic.muzzleLightColor[2]
-		);
+		if (JKG_SimpleAmmoOverridePresent(ammoData->visualOverrides.muzzleLightColor))
+		{
+			trap->R_AddLightToScene(
+				muzzle.origin,
+				muzzleLightIntensity + (rand() & 31),
+				ammoData->visualOverrides.muzzleLightColor.second[0],
+				ammoData->visualOverrides.muzzleLightColor.second[1],
+				ammoData->visualOverrides.muzzleLightColor.second[2]
+			);
+		}
+		else
+		{
+			trap->R_AddLightToScene(
+				muzzle.origin,
+				muzzleLightIntensity + (rand() & 31),
+				weaponData->weaponRender.generic.muzzleLightColor[0],
+				weaponData->weaponRender.generic.muzzleLightColor[1],
+				weaponData->weaponRender.generic.muzzleLightColor[2]
+			);
+		}
 	}
 }
 
@@ -3199,7 +3330,7 @@ void JKG_RenderWeaponViewModel ( void )
 
 	if ( weapon->eventsHandler[ps->firingMode] && weapon->eventsHandler[ps->firingMode]->WeaponRenderView )
 	{
-		weapon->eventsHandler[ps->firingMode]->WeaponRenderView(&weapon->drawData[ps->firingMode]);
+		weapon->eventsHandler[ps->firingMode]->WeaponRenderView(&weapon->drawData[ps->firingMode], &ammoTable[cent->currentState.ammoType]);
 	}
 }
 
@@ -3244,6 +3375,19 @@ void JKG_RenderProjectile ( const centity_t *cent, unsigned char firingMode )
 	if( weapon->eventsHandler[firingMode] && weapon->eventsHandler[firingMode]->ProjectileRender )
 	{
 		weapon->eventsHandler[firingMode]->ProjectileRender ( cent, &weapon->drawData[firingMode], &ammoTable[cent->currentState.ammoType]);
+	}
+}
+
+void JKG_RenderOverheatEffect(centity_t* cent, fxHandle_t steamEfx, const vec3_t muzzlePosition, vec3_t* axis, qboolean isLocalPlayer, qboolean isFirstPerson)
+{
+	if (isFirstPerson)
+	{
+		trap->FX_PlayEntityEffectID(steamEfx, const_cast<float*>(muzzlePosition), axis, -1, -1, -1, -1);
+	}
+
+	else
+	{
+		trap->FX_PlayEntityEffectID(steamEfx, const_cast<float*>(muzzlePosition), axis, cent->boltInfo, cent->currentState.number, -1, -1);
 	}
 }
 

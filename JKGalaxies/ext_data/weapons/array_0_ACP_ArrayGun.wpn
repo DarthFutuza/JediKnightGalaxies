@@ -16,7 +16,7 @@
             "ammo":         [ "models/weapons/ACP_ArrayGun/numbers3", "models/weapons/ACP_ArrayGun/numbers2" ]
         },
         
-        "gunposition":      "2.0 -3.0 -5.5",
+        "gunposition":      "5.0 -3.0 -7.0",
         "ironsightsposition": "3.3 -1.0 -5.0",
         "ironsightsfov": "70",
 		"barrelCount":	"3",
@@ -63,19 +63,28 @@
     },
     
     "firemode0": {
-        "damage":       15,
+        "damage": {
+		    "damage":       15,
+		    "buffs": [
+			    {
+				"buff": "standard-bleed",
+				"duration": 7000
+			    }
+		    ]
+	    },
+        "collisionsize": 4.0,
         "ammocost":     1,
         "firedelay":    1100,
         "firingtype":   "semi",
         "projectiles":     8,
-        "recoil":       1.5,
+        "recoil":       3.5,
         "range":       2200,
         "spread":       1.7,
         "projectilespeed": 6000.0,
         "projectileclass": "blaster_proj",
         "meansofdeath": "MOD_ACP",
-	"ammobase": "AMMO_ACP_ARRAY",
-	"ammodefault": "AMMO_ACP_ARRAY",
+	    "ammobase": "AMMO_ACP_ARRAY",
+	    "ammodefault": "AMMO_ACP_ARRAY",
         "clipSize":              8,
         "accuracy": {
         	"accuracyRating": 96,
@@ -91,7 +100,16 @@
     },
     
     "firemode1": {
-        "damage":       15,
+        "damage": {
+		    "damage":       15,
+		    "buffs": [
+			    {
+				"buff": "standard-bleed",
+				"duration": 7000
+			    }
+		    ]
+	    },
+        "collisionsize": 3.0,
         "ammocost":     1,
         "burstshotdelay": 250,
         "firedelay":    1350,
@@ -104,8 +122,8 @@
         "projectilespeed": 6000.0,
         "projectileclass": "blaster_proj",
         "meansofdeath": "MOD_ACP",
-	"ammobase": "AMMO_ACP_ARRAY",
-	"ammodefault": "AMMO_ACP_ARRAY",
+	    "ammobase": "AMMO_ACP_ARRAY",
+	    "ammodefault": "AMMO_ACP_ARRAY",
         "clipSize":              8,
         "accuracy": {
         	"accuracyRating": 96,
@@ -126,8 +144,7 @@
     
     "playeranims": {
         "idle":         { "torso": "TORSO_WEAPONIDLE3", "legs": "BOTH_IDLE1" },
-        "reload":       { "torso": "BOTH_RIFLERELOADL" },
-//        "reload":       { "torso": "BOTH_RIFLERELOADR" },
+        "reload":       { "torso": "BOTH_RIFLERELOADR" },
         "sights":        { "torso": "TORSO_WEAPONREADY3", "legs": "BOTH_STAND1" },
 	"sprint":	{ "torso": "BOTH_RIFLERUN" }, 
         "sightsFiring":       { "torso": "BOTH_ATTACK3" },

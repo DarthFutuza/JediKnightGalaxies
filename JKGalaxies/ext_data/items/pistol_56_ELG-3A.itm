@@ -5,7 +5,8 @@
 	"weapon":		"WP_BRYAR_PISTOL",
 	"variation":		"2",
 	"weight":		"2",
-	"cost":		"550",
+	"cost":		"575",
 	"xml":			"xml/items/ELG-3A.xml",
-	"itemIcon":		"models/weapons/elg-3a_pistol/icon_default"
+	"itemIcon":		"models/weapons/elg-3a_pistol/icon_default",
+	"itemDescription": "This SoroSuub manufactured blaster was a pulse firing weapon, that while not particularly powerful had a very high rate of fire. It was favored by political operative's due to its discreet and elegant appearance. It also featured a stun mode."
 }

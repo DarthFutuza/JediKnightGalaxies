@@ -212,6 +212,32 @@ int ClientNumberFromString( gentity_t *to, const char *s, qboolean allowconnecti
 }
 
 
+//damage & healing plums copied from g_combat
+/*
+===========
+PlumItems
+===========
+*/
+
+void PlumItems(gentity_t *ent, vec3_t origin, int damage, int meansOfDeath, int shield, qboolean weak)
+{
+	meansOfDamage_t* means = JKG_GetMeansOfDamage(meansOfDeath);
+
+	if (means->plums.noDamagePlums)
+	{	// this means of death has no damage plums 
+		return;
+	}
+
+	if (ent->damagePlumTime != level.time) {
+		ent->damagePlum = G_TempEntity(origin, EV_DAMAGEPLUM);
+		ent->damagePlumTime = level.time;
+	}
+	ent->damagePlum->s.time = damage;
+	ent->damagePlum->s.eventParm = meansOfDeath;
+	ent->damagePlum->s.generic1 = shield;
+	ent->damagePlum->s.groundEntityNum = weak;
+}
+
 
 /*
 =================
@@ -311,7 +337,7 @@ void DeathmatchScoreboardMessage( gentity_t *ent ) {
 			cl->sess.sessionTeam == TEAM_SPECTATOR ? 0 : cl->ps.persistant[PERS_SCORE], ping, (level.time - cl->pers.enterTime)/60000,
 			scoreFlags, g_entities[level.sortedClients[i]].s.powerups);
 		j = strlen(entry);
-		if (stringlength + j > 1022)
+		if (stringlength + j > MAX_STRING_CHARS-2) //formerly 1022
 			break;
 		strcpy (string + stringlength, entry);
 		stringlength += j;
@@ -358,10 +384,17 @@ void Cmd_Pay_f(gentity_t* ent) {
 	vec3_t traceStart, traceEnd, forward;
 	char creditBuffer[MAX_STRING_CHARS];
 	int credits;
-	int limit;
+	int limit;  //credit limit we can pay
+	int teamTime; //how much time we've been on the team
 
 	if (trap->Argc() != 2) {
 		trap->SendServerCommand(ent - g_entities, "print \"Usage: /pay <# of credits, or \"all\">\n\"");
+		return;
+	}
+
+	if (jkg_payTime.integer < 1)
+	{
+		trap->SendServerCommand(ent - g_entities, "/pay is not allowed on this server!\n\"");
 		return;
 	}
 
@@ -373,23 +406,14 @@ void Cmd_Pay_f(gentity_t* ent) {
 	else 
 		credits = atoi(creditBuffer);
 
+	teamTime = (level.time - ent->client->pers.enterTime);
 	limit = (ent->client->ps.credits - jkg_startingCredits.integer);
-	/*limit = ent->client->ps.credits + ent->client->ps.spent - jkg_startingCredits.integer;	//how much "earned" money do we actually have?
 
-	//handle passive credits if enabled
-	if (jkg_passiveCreditsAmount.integer > 0)
+	if ( teamTime < 60000* jkg_payTime.integer) //5 mins is default
 	{
-		int delta = level.time - level.startTime;	//how long has the match been going?
-		//if we joined at least jkg_passiveCreditsWait late (typically 1 minute)
-		if (delta > jkg_passiveCreditsWait.integer)
-		{
-			int reward  = (jkg_passiveCreditsAmount.integer * (delta / jkg_passiveCreditsRate.integer));				//calculate amount we would have got
-			if (jkg_passiveCreditsWait.integer > jkg_passiveCreditsRate.integer)
-				reward -= (jkg_passiveCreditsAmount.integer * (jkg_passiveCreditsWait.integer / jkg_passiveCreditsRate.integer)) - jkg_passiveCreditsAmount.integer;		//minus the initial wait before credits are disbursed
-
-			limit -= reward;		//subtract passively earned money
-		}
-	}*/
+		trap->SendServerCommand(ent - g_entities, "print \"You cannot use /pay until you've played the game for a longer period of time.\n\"");
+		return;
+	}
 
 	if (credits <= 0) {
 		trap->SendServerCommand(ent - g_entities, "print \"You must offer an amount of 1 or more.\n\"");
@@ -840,18 +864,17 @@ Prints a list of all the ammo that you have
 ==================
 */
 static void Cmd_MyAmmo_f(gentity_t* ent) {
-	trap->SendServerCommand(ent - g_entities, "print \"=============================================\n\"");
+	trap->SendServerCommand(ent - g_entities, "print \"Ammo Name                       |Type                            |Cur/Total\n\"");
+	trap->SendServerCommand(ent - g_entities, "print \"================================|================================|==========\n\"");
 	for (int i = 0; i < numAmmoLoaded; i++) {
 		if (!ent->client->ammoTable[i]) {
 			continue;
 		}
 		ammo_t* ammo = &ammoTable[i];
-		trap->SendServerCommand(ent - g_entities, va("print \"%s: %i/%i\n\"", ammo->name, ent->client->ammoTable[i], ammo->ammoMax));
+		trap->SendServerCommand(ent - g_entities, va("print \"%-31s | %-30s | %-4i/%-4i\n\"", ammo->shortname, ammo->substitute, ent->client->ammoTable[i], ammo->ammoMax));	
 	}
-	trap->SendServerCommand(ent - g_entities, "print \"=============================================\n\"");
+	trap->SendServerCommand(ent - g_entities, "print \"\n\"");
 }
-
-
 
 /*
 ==================
@@ -943,6 +966,34 @@ qboolean CustomVendorSounds(gentity_t *conversationalist, char *name)
 
 
 /*
+========================
+HasCustomCivSounds
+does the npc have custom sounds?
+
+========================
+*/
+qboolean HasCustomCivSounds(char* path, gentity_t* conversationalist, char* name)
+{
+	fileHandle_t	f;
+	char			filename[256];
+
+	strcpy(filename, va("%s/civilian_%s/%s.mp3", path, conversationalist->NPC_type, name));
+
+	trap->FS_Open(filename, &f, FS_READ);
+
+	if (!f)
+	{// End of conversation...
+		trap->FS_Close(f);
+		return qfalse;
+	}
+
+	trap->FS_Close(f);
+
+	return qtrue;
+}
+
+
+/*
 ==================
 JKG_BuyItem_f
 
@@ -991,11 +1042,22 @@ void Cmd_BuyItem_f(gentity_t *ent)
 			G_Sound(trader, CHAN_AUTO, G_SoundIndex(filename));
 		}
 
-		//if not custom vendor, use the generic one
+		//if not custom vendor, check for fallback sounds
 		else
 		{
-			snd = va("sound/vendor/generic/purchasefail0%i.mp3", Q_irand(0, 5));
-			G_Sound(trader, CHAN_AUTO, G_SoundIndex(snd));	//play sound
+			//check for conversation 'upset' sound
+			if (HasCustomCivSounds(va("sound/conversation"), trader, va("upset00")) )
+			{
+				snd = va("sound/conversation/civilian_%s/upset00.mp3", trader->NPC_type);
+				G_Sound(trader, CHAN_AUTO, G_SoundIndex(snd));	//play sound
+			}
+
+			//use generic
+			else
+			{
+				snd = va("sound/vendor/generic/purchasefail0%i.mp3", Q_irand(0, 5));
+				G_Sound(trader, CHAN_AUTO, G_SoundIndex(snd));	//play sound
+			}
 		}
 		return;
 	}
@@ -1031,9 +1093,9 @@ void Cmd_BuyItem_f(gentity_t *ent)
 
 	//play purchase sound
 	{
-		char* snd;
+		//char* snd;  //unused
 
-		//select random unhappy vendor sound to play
+		//select random purchase vendor sound to play
 		if (CustomVendorSounds(trader, "purchase00"))
 		{// This NPC has it's own vendor specific sound(s)...
 			char	filename[256];
@@ -1091,9 +1153,55 @@ void Cmd_CloseVendor_f (gentity_t *ent)
 		return;
 	}
 
+	ent->flags &= ~FL_BUSYMODE; //no longer marked as busy
 	ent->client->pmnomove = false;
 	ent->client->currentTrader->genericValue1 = ENTITYNUM_NONE;
 	ent->client->currentTrader = NULL;
+}
+
+//consume item helper function
+void JKG_ConsumeItem_h(gentity_t* ent, int itemNum)
+{
+
+	//--futuza todo: tie this to the ui so we can have a nice cooldown timer on the aci of the consumable item as well
+	int initHP = ent->client->ps.stats[STAT_HEALTH];    //get initial health before consuming item		--futuza: this is a hacky way of doing it, really needs a LUA function to figure this out
+	int initStamina = ent->client->ps.forcePower;		//get initial stamina/force
+	switch (BG_ConsumeItem(ent, itemNum))
+	{
+	case 1:
+		trap->SendServerCommand(ent - g_entities, "print \"Could not consume that item - either it is not a consumable or it is not a valid inventory item.\n\"");
+		return;
+	case 2:
+		trap->SendServerCommand(ent - g_entities, "print \"Could not consume that item - not enough quantity to consume this item.\n\"");
+		return;
+	case 3:
+		trap->SendServerCommand(ent - g_entities, "print \"Could not consume that item - you must wait before consuming additional items.\n\"");
+		trap->SendServerCommand(ent - g_entities, va("notify 1 \"Consumables on cooldown.\""));
+		return;
+	case 4:
+		trap->SendServerCommand(ent - g_entities, "print \"Could not consume that item - your stats are already at max value.\n\"");
+		return;
+	default:
+		break;
+	}
+	int endHP = ent->client->ps.stats[STAT_HEALTH];   //get final health after consuming item
+	int endStamina = ent->client->ps.forcePower;	//get final stamina
+	int take_hp = endHP - initHP;	int take_stamina = endStamina - initStamina;	//calculate diffs
+	if (take_hp != 0)
+	{
+		if (take_hp > 0)
+			PlumItems(ent, ent->r.currentOrigin, take_hp, JKG_GetMeansOfDamageIndex("MOD_CURED"), 0, take_hp <= (ent->s.maxhealth / 4));
+		else
+			PlumItems(ent, ent->r.currentOrigin, -take_hp, JKG_GetMeansOfDamageIndex("MOD_POISONED"), 0, take_hp <= (ent->s.maxhealth / 4));	//take is negated (to pass correct parameters)
+	}
+
+	if (take_stamina != 0)
+	{
+		if (take_stamina > 0)
+			PlumItems(ent, ent->r.currentOrigin, take_stamina, JKG_GetMeansOfDamageIndex("MOD_STAMINA_GAIN"), 0, take_stamina <= (ent->client->ps.stats[STAT_MAX_STAMINA] / 4));
+		else
+			PlumItems(ent, ent->r.currentOrigin, -take_stamina, JKG_GetMeansOfDamageIndex("MOD_STAMINA_LOSE"), 0, take_stamina <= (ent->client->ps.stats[STAT_MAX_STAMINA] / 4));
+	}
 }
 
 /*
@@ -1104,11 +1212,7 @@ JKG_ConsumeItem_f
 */
 void JKG_ConsumeItem_f(gentity_t* ent) {
 	char* args = ConcatArgs(1);
-	int argNum = atoi(args);
-
-	if (!BG_ConsumeItem(ent, argNum)) {
-		trap->SendServerCommand(ent - g_entities, "print \"Could not consume that item - either it is not a consumable or it is not a valid inventory item\n\"");
-	}
+	JKG_ConsumeItem_h(ent, atoi(args));
 }
 
 /*
@@ -1207,7 +1311,7 @@ void Cmd_GiveBuff_f(gentity_t* ent)
 
 	if (trap->Argc() < 2)
 	{
-		trap->SendServerCommand(ent - g_entities, "print \"usage: /givebuff <buff name> [duration] [intensity]\n\"");
+		trap->SendServerCommand(ent - g_entities, "print \"usage: /givebuff <buff name> [duration (in ms)] [intensity (default 1.0)]\n\"");
 		return;
 	}
 
@@ -1358,9 +1462,9 @@ void G_Give( gentity_t *ent, const char *name, const char *args, int argc )
 	if ( give_all || !Q_stricmp( name, "stamina" ) )
 	{
 		if ( argc == 3 )
-			ent->client->ps.forcePower = Com_Clampi( 0, ent->client->ps.fd.forcePowerMax, atoi( args ) );
+			ent->client->ps.forcePower = Com_Clampi( 0, ent->client->ps.stats[STAT_MAX_STAMINA], atoi( args ) );
 		else
-			ent->client->ps.forcePower = ent->client->ps.fd.forcePowerMax;
+			ent->client->ps.forcePower = ent->client->ps.stats[STAT_MAX_STAMINA];
 
 		if ( !give_all )
 			return;
@@ -1734,7 +1838,6 @@ void SetTeam( gentity_t *ent, char *s ) {
 	int					clientNum;
 	spectatorState_t	specState;
 	int					specClient;
-	int					teamLeader;
 
 	// fix: this prevents rare creation of invalid players
 	if (!ent->inuse)
@@ -1862,7 +1965,7 @@ void SetTeam( gentity_t *ent, char *s ) {
 		ent->flags &= ~FL_GODMODE;
 		ent->client->ps.stats[STAT_HEALTH] = ent->health = 0;
 		g_dontPenalizeTeam = qtrue;
-		player_die (ent, ent, ent, 100000, MOD_SUICIDE);
+		player_die (ent, ent, ent, 100000, MOD_TEAM_CHANGE);
 		g_dontPenalizeTeam = qfalse;
 
 	}
@@ -1979,7 +2082,8 @@ void Cmd_Team_f( gentity_t *ent ) {
 	//if teams are locked, and its been more than 20% of the match, and we didn't connect in the last 3 minutes
 	if (timelimit.integer > 0)
 	{
-		if (g_teamsLocked.integer > 0 && ((timelimit.integer * 60000 * 0.2) < level.time) && (level.time - ent->client->sess.connTime > 60000 * 3))
+		//if teamlock enabled && (timelimit*60k)*0.2) < matchtime && matchtime - clientConnectedTime > 3 mins
+		if ( g_teamsLocked.integer > 0 && ((timelimit.integer * 12000) < level.time) && ((level.time - ent->client->sess.connTime) > 180000) )
 		{
 			trap->SendServerCommand(ent - g_entities, va("print \"%s\n\"", G_GetStringEdString("MP_SVGAME", "TEAMSLOCKED")));
 			return;
@@ -2029,32 +2133,6 @@ void Cmd_Team_f( gentity_t *ent ) {
 // INVENTORY RELATED COMMANDS
 //==========================================================
 
-//damage & healing plums copied from g_combat
-/*
-===========
-PlumItems
-===========
-*/
-
-void PlumItems(gentity_t *ent, vec3_t origin, int damage, int meansOfDeath, int shield, qboolean weak)
-{
-	meansOfDamage_t* means = JKG_GetMeansOfDamage(meansOfDeath);
-
-	if (means->plums.noDamagePlums)
-	{	// this means of death has no damage plums 
-		return;
-	}
-
-	if (ent->damagePlumTime != level.time) {
-		ent->damagePlum = G_TempEntity(origin, EV_DAMAGEPLUM);
-		ent->damagePlumTime = level.time;
-	}
-	ent->damagePlum->s.time = damage;
-	ent->damagePlum->s.eventParm = meansOfDeath;
-	ent->damagePlum->s.generic1 = shield;
-	ent->damagePlum->s.groundEntityNum = weak;
-}
-
 /*
 =================
 JKG_Cmd_ItemAction_f
@@ -2079,24 +2157,40 @@ void JKG_Cmd_ItemAction_f(gentity_t *ent, int itemNum)
 	{
 		return;
 	}
-	if (itemNum > ent->inventory->size())
+
+	if (ent->inventory->size() < 1)
+	{
+		//bugfix: empty inventory == nothing to use  --Futuza
+		return;
+	}
+
+	if (itemNum >= ent->inventory->size())
 	{
 		//Nope.
 		return;
 	}
 
-	int initHP = ent->client->ps.stats[STAT_HEALTH];    //get initial health before consuming item		--futuza: this is a hacky way of doing it, really needs a LUA function to figure this out
-	BG_ConsumeItem(ent, itemNum);
-	int endHP = ent->client->ps.stats[STAT_HEALTH];   //get final health after consuming item
-
-	int take = endHP - initHP;
-	if (take != 0)
+	//if  item is a jetpack
+	if(ent->inventory->at(itemNum).id->itemType == ITEM_JETPACK)
 	{
-		if (take > 0)
-			PlumItems(ent, ent->r.currentOrigin, take, JKG_GetMeansOfDamageIndex("MOD_CURED"), 0, take <= (ent->s.maxhealth / 4));
-		else
-			PlumItems(ent, ent->r.currentOrigin, -take, JKG_GetMeansOfDamageIndex("MOD_POISONED"), 0, -take <= (ent->s.maxhealth / 4));	//take is negated (to pass correct parameters
+		ItemUse_Jetpack(ent);
+		return;
 	}
+
+	//if item is a shield - TODO: add this feature
+	/*if (ent->inventory->at(itemNum).id->itemType == ITEM_SHIELD)
+	{
+		//call special shield effect
+		return;
+	}*/
+
+	//if  item is a consumable
+	if (ent->inventory->at(itemNum).id->itemType == ITEM_CONSUMABLE)
+	{
+		JKG_ConsumeItem_h(ent, itemNum);
+	}
+
+
 }
 
 /*
@@ -2133,21 +2227,39 @@ JKG_Cmd_ShowInv_f
 */
 void Cmd_ShowInv_f(gentity_t *ent)
 {
-    char buffer[MAX_STRING_CHARS] = { 0 };
-	int i = 0;
+    char buffer[MAX_STRING_CHARS] = { 0 };  //--Futuza: note this will run out of space for most inventories, so we have to break it up (as below)
+	float weight = 0;
+	float armorweight = 0;
 	if(!ent->client)
 		return;
 
-	Q_strncpyz (buffer, "Inventory ID | Item Num | Instance Name                       | Weight\n", sizeof (buffer));
-	Q_strcat (buffer, sizeof (buffer), "-------------+----------+-----------------------------------------------+--------\n");
+	Q_strncpyz (buffer, "Inventory ID | Item Num | Instance Name                                 | Quantity | Weight\n", sizeof (buffer));
+	Q_strcat (buffer, sizeof (buffer), "-------------+----------+----------------------------------------------------------+--------\n");
+	trap->SendServerCommand(ent->s.number, va("print \"%s\n\"", buffer)); //print out
+	memset(buffer, '\0', sizeof(buffer));
+
 
 	for (auto it = ent->inventory->begin(); it != ent->inventory->end(); ++it) {
-		Q_strcat(buffer, sizeof(buffer), va(S_COLOR_WHITE "%12i | %8i | %-45s | %i\n", i, it->id->itemID, it->id->displayName, it->quantity));
+		Q_strcat(buffer, sizeof(buffer), va(S_COLOR_WHITE "%12i | %8i | %-45s | %8i | %6.2f\n", it - ent->inventory->begin(), it->id->itemID, it->id->displayName, it->quantity, it->id->weight));
+		weight = weight + (it->id->weight * it->quantity);
+		if (it->equipped)
+		{
+			armorweight = armorweight + (it->id->weight * it->quantity);
+		}
+
+		//buffer is about to fill - spit out what we got so far
+		if (buffer[MAX_STRING_CHARS-100] != '\0')
+		{
+			trap->SendServerCommand(ent->s.number, va("print \"%s\"", buffer));
+			memset(buffer, '\0', sizeof(buffer)); //reset
+		}
 	}
 
-	Q_strcat (buffer, sizeof (buffer), va( "%i total items", i));
-
-	trap->SendServerCommand (ent->s.number, va ("print \"%s\n\"", buffer));
+	//add totals on the end
+	Q_strcat(buffer, sizeof(buffer), va("\nEquipped weight: %.2f\n", armorweight));  //--Futuza: including ACI weight would be nice, but we can't access cg from here (yet) to see if weapons are equipped or not
+	Q_strcat (buffer, sizeof (buffer), va( "Total weight: %.2f\n", weight));
+	Q_strcat (buffer, sizeof (buffer), va( "Total items: %i", ent->inventory->size()));
+	trap->SendServerCommand (ent->s.number, va ("print \"%s\n\"", buffer)); 
 }
 
 /*
@@ -2273,11 +2385,13 @@ void Cmd_SellItem_f(gentity_t *ent)
 	if (!item.id) {
 		return;
 	}
+		
 	// DO NOT ALLOW SELLING OF STARTER WEAPONS! (unless you already have another gun in your inventory)
 	if (item.id->itemType == ITEM_WEAPON) {
 		if (!Q_stricmp(item.id->internalName, level.startingWeapon)) {
 			if (ent->inventory->size() < 2) {
-				trap->SendServerCommand(ent - g_entities, "print \"You cannot sell your starter gun unless you have another item in your inventory.\n\"");
+				trap->SendServerCommand(ent - g_entities, "print \"You cannot sell your starter gun unless you have another item in your inventory.\n\""); //only visible in console
+				trap->SendServerCommand(ent - g_entities, "notify 1 \"You cannot sell your starter gun unless you have another item in your inventory.\n\"");
 				return;
 			}
 			else {
@@ -2292,7 +2406,15 @@ void Cmd_SellItem_f(gentity_t *ent)
 	else if (item.id->itemType == ITEM_JETPACK && item.equipped) {
 		Cmd_JetpackUnequipped(ent);
 	}
+
+	else if (item.id->itemType == ITEM_ARMOR && item.equipped) {
+		JKG_ArmorChanged(ent);
+	}
+
+
 	ent->client->ps.credits += (creditAmount * item.quantity) / 2;
+	
+
 	BG_RemoveItemStack(ent, nInvID);
 	trap->SendServerCommand(ent->s.number, va("inventory_update %i", ent->client->ps.credits));
 
@@ -3284,10 +3406,11 @@ qboolean G_VoteGametype( gentity_t *ent, int numArgs, const char *arg1, const ch
 		gt = GT_TEAM;
 	}
 	// logically invalid gametypes, or gametypes not fully implemented in MP
-	if ( gt == GT_SINGLE_PLAYER ) {
+	if ( gt == GT_SINGLE_PLAYER || gt == GT_WARZONE) {
 		trap->SendServerCommand( ent-g_entities, va( "print \"This gametype is not supported (%s).\n\"", arg2 ) );
 		return qfalse;
 	}
+
 	level.votingGametype = qtrue;
 	level.votingGametypeTo = gt;
 	Com_sprintf( level.voteString, sizeof( level.voteString ), "%s %d", arg1, gt );
@@ -3927,6 +4050,30 @@ void Cmd_Reload_f( gentity_t *ent ) {
 
 	// Don't shoot any more bullets!
 	ent->client->ps.shotsRemaining = 0;
+
+	//flush heat on a reload (default is 50%)
+	if (ent->client->ps.heat > 0)
+	{
+		float heatPerct = wp->firemodes[ent->client->ps.firingMode].reloadClearHeat * 0.01f;
+		if (heatPerct < 0)
+			heatPerct = 0.0f;
+
+		if (heatPerct > 1)
+			heatPerct = 1.0f;
+
+		ent->client->ps.heat -= (heatPerct * ent->client->ps.heat);
+
+		if (ent->client->ps.heat < 1)
+			ent->client->ps.heat = 0.0f;
+	}
+
+	//check if we need to turn off overheating status after halfing heat
+	if (ent->client->ps.overheated)
+	{
+		if(ent->client->ps.heat < ent->client->ps.heatThreshold)
+			ent->client->ps.overheated = false;
+	}
+	
 }
 
 /*
@@ -4171,7 +4318,7 @@ void Cmd_AmmoCycle_f(gentity_t* ent) {
 	}
 
 	// Determine if we have ammo to cycle to.
-	BG_GetAllAmmoSubstitutions(wp->firemodes[fireMode].ammoBase->ammoIndex, allValidAmmos);
+	BG_GetAllAmmoSubstitutions(wp->firemodes[fireMode].ammoBase->ammoIndex, allValidAmmos); //--futuza trouble happening here
 
 	if (allValidAmmos.size() == 0) {
 		// Our weapon...is not linked up correctly? or something? It doesn't have any ammo...
@@ -4227,7 +4374,7 @@ void Cmd_SaberAttackCycle_f(gentity_t *ent)
 	int selectLevel = 0;
 	int i, j;
 
-	if ( !ent || !ent->client )
+	if ( !ent || !ent->client)
 	{
 		return;
 	}
@@ -4247,6 +4394,12 @@ void Cmd_SaberAttackCycle_f(gentity_t *ent)
 	if (ent->client->ps.weaponstate != WEAPON_READY)
 	{
 		// Don't let us swap firing modes while changing weapons --eez
+		return;
+	}
+
+	if(!JKG_ClientAlive(ent))
+	{
+		// Don't swap while dead
 		return;
 	}
 
@@ -4527,9 +4680,9 @@ void Cmd_BuyAmmo_f(gentity_t* ent) {
 	int itemSlot;
 	char argBuffer[MAX_TOKEN_CHARS] {0};
 	int myCredits = ent->client->ps.credits;
-	int cost;
+	float cost;
 	int totalCost = 0, numFiringModesFilled = 0, numUnitsPurchased = 0;
-	int perUnitCost = 0;
+	float perUnitCost = 0;
 
 	gentity_t* trader = ent->client->currentTrader;
 	if (trader == nullptr)
@@ -4580,20 +4733,21 @@ void Cmd_BuyAmmo_f(gentity_t* ent) {
 		else
 			perUnitCost = ammo->pricePerUnit;
 
-		if (myCredits == 0 && perUnitCost == 0)
+		if (myCredits <= 0 && perUnitCost <= 0)
 			;
 		else
 		{
-			if (myCredits < perUnitCost) {
-				continue; // we don't have enough money to afford one unit of ammo
+			if (myCredits < perUnitCost) // we don't have enough money to afford one unit of ammo
+			{
+				trap->SendServerCommand(ent - g_entities, "print \"You cannot afford ammo for that weapon.\n\"");
+				continue; 
 			}
 		}
 
-		cost = perUnitCost * unitsRequested;
+		cost = perUnitCost * (float)unitsRequested;
 
-		
 		//if passiveUnderdogBonus is enabled and our team is losing, our ammo is discounted!  Awww, thanks vendor!  
-		if (jkg_passiveUnderdogBonus.integer > 0)	//--Futuza: this is only done game logic side, and needs to be added to the display in jkg_shop.cpp because right now it will just display the usual price
+		/*if (jkg_passiveUnderdogBonus.integer > 0)	//--Futuza: this needs to match logic of BG_GetRefillAmmoCost() in bg_ammo.cpp, disabled for now
 		{
 			//who is currently winning?
 			auto my_team = ent->client->sess.sessionTeam;
@@ -4621,10 +4775,10 @@ void Cmd_BuyAmmo_f(gentity_t* ent) {
 					ammoAdjust = 0.25;		//maximum discount is 75% off
 
 				cost = cost * ammoAdjust;
-				if (cost < 1)
+				if (0 < cost < 1)
 					cost = 1;
 			}
-		}
+		}*/
 
 		if (cost > myCredits) {
 			// We can't fill it all the way, so fill it as much as we can
@@ -4632,6 +4786,12 @@ void Cmd_BuyAmmo_f(gentity_t* ent) {
 			unitsRequested = floor(cost / perUnitCost);
 			cost = unitsRequested * perUnitCost;
 		}
+
+		//if our price is between 0 and 1, just make it cost 1 credit - so players can't scam us out of free ammo
+		if (0 < cost && cost < 1) 
+			cost = 1;
+		
+		cost = floor(cost); //credits are int only, time to act like it
 
 		// Buy the ammo and update stats
 		//ent->client->ps.spent += cost;
@@ -4945,12 +5105,9 @@ void ClientCommand( int clientNum ) {
 		return;
 	}
 	else if ( (command->flags & CMD_ONLYALIVE)
-		&& (ent->health <= 0
-			|| ent->client->tempSpectate >= level.time
-			|| ent->client->deathcamTime ) )
+		&& !JKG_ClientAlive(ent))
 	{
 		// This command requires us to be alive and we aren't.
-		// FIXME: When `develop` gets merged, use JKG_ClientAlive !!!
 		trap->SendServerCommand(clientNum, va("print \"%s\n\"", G_GetStringEdString("MP_SVGAME", "MUSTBEALIVE")));
 		return;
 	}

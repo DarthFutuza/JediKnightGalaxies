@@ -17,7 +17,7 @@
             "firemode":     "models/weapons/DXR6_HeavyCarbine/firemode"
         },
         
-        "gunposition":      "8.0 -3.0 -6.6",
+        "gunposition":      "8.0 -4.0 -8.0",
         "ironsightsposition": "9.0 0.0 -5.1",
         "ironsightsfov": "70",
 		"barrelCount": "3",
@@ -73,7 +73,7 @@
     },
         
     "firemode0": {
-        "damage":       40,
+        "damage":       20,
         "ammocost":     1,
         "firedelay":    300,
         "range":        3500.0,
@@ -83,16 +83,18 @@
         "projectileclass": "blaster_proj",
         "meansofdeath": "MOD_BLASTER",
         "splashmeansofdeath": "MOD_BLASTER",
-	"ammoBase": "AMMO_POWERCELL_L",
+	"ammoBase": "AMMO_POWERCELL",
 	"ammoDefault": "AMMO_POWERCELL_S",
         "clipSize":              16,
             "accuracy": {
-        "accuracyRating": 25,
-        "accuracyRatingPerShot": 6,
-        "msToDrainAccuracy": 70,
-        "maxAccuracyAdd": 70,
-        "sightsModifier": 0.3
-        }
+			"accuracyRating": 25,
+			"accuracyRatingPerShot": 6,
+			"msToDrainAccuracy": 70,
+			"maxAccuracyAdd": 70,
+			"sightsModifier": 0.3
+        },
+        "heatGenerated": 6,
+		"maxHeat": 75
     },
 
     "firemode1": {
@@ -100,7 +102,7 @@
         "damage": {
                                "damageradius": { "start": 8,
                                                      "function": [ "constant"] },
-                               "damage":       50
+                               "damage":       40
                         },
         "ammocost":     2,
         "maxchargetime":1000,
@@ -112,11 +114,11 @@
         "range":        7000.0,
         "recoil":       1.6,
         "spread":       0.0,
-        "projectilespeed": 6500.0,
+        "projectilespeed": 7500.0,
         "projectileclass": "blaster_proj",
         "meansofdeath": "MOD_DISRUPTOR",
         "splashmeansofdeath": "MOD_DISRUPTOR",
-	"ammoBase": "AMMO_POWERCELL_L",
+	"ammoBase": "AMMO_POWERCELL",
 	"ammoDefault": "AMMO_POWERCELL_S",
         "clipSize":              16,
         "accuracy": {
@@ -124,12 +126,14 @@
         	"accuracyRatingPerShot": 8,
         	"msToDrainAccuracy": 120,
         	"maxAccuracyAdd": 100,
-        	"crouchModifier": 0.95,
+        	"crouchModifier": 0.6,
         	"runModifier": 1.8,
         	"sightsModifier": 0.65,
-        	"walkModifier": 1.5,
+        	"walkModifier": 1.4,
         	"inAirModifier": 2.4
-        }
+        },
+		"heatGenerated": 8,
+		"maxHeat": 75
     },
     
     "playeranims": {

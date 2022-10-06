@@ -4,6 +4,7 @@
 #include "jkg_inventory.h"
 #include <algorithm>
 
+
 using namespace std;
 
 /* Global variables */
@@ -45,27 +46,6 @@ void JKG_Shop_UpdatePriceCheck()
 		nPriceCheckCost = 0;	//its free!
 		return;
 	}
-
-	//todo: (see g_cmds.cpp Cmd_BuyAmmo_f()) - when on losing team ammo is discounted (currently happens with game logic, just isn't displayed in g_cmds)
-	/*if (atoi(Info_ValueForKey(info, "jkg_passiveUnderdogBonus")) > 0)
-	{
-		//who is currently winning?
-
-		auto my_team = ent->client->sess.sessionTeam;
-		int curr_winner = -1;
-		if (level.teamScores[TEAM_RED] > level.teamScores[TEAM_BLUE])
-			curr_winner = TEAM_RED;
-		else if (level.teamScores[TEAM_RED] < level.teamScores[TEAM_BLUE])
-			curr_winner = TEAM_BLUE;
-		else
-			curr_winner = -1;	//tie
-
-		if (my_team != curr_winner && curr_winner != -1)
-			bPriceCheckComplete = true;
-			nPriceCheckCost = it->second / 2;
-			return;
-		
-	}*/
 
 	for (auto it = vPriceCheckedAmmo.begin(); it != vPriceCheckedAmmo.end(); ++it)
 	{
@@ -117,6 +97,14 @@ void JKG_ConstructShopLists() {
 				continue;
 			}
 			else if (ui_inventoryFilter.integer == JKGIFILTER_CONSUMABLES && pThisItem->id->itemType != ITEM_CONSUMABLE) {
+				continue;
+			}
+			else if (ui_inventoryFilter.integer == JKGIFILTER_TOOLS && pThisItem->id->itemType != ITEM_TOOL)
+			{
+				continue;
+			}
+			else if (ui_inventoryFilter.integer == JKGIFILTER_AMMO && pThisItem->id->itemType != ITEM_AMMO)
+			{
 				continue;
 			}
 			else if (ui_inventoryFilter.integer == JKGIFILTER_MISC) {
@@ -173,6 +161,14 @@ void JKG_ConstructShopLists() {
 				continue;
 			}
 			else if (ui_inventoryFilter.integer == JKGIFILTER_CONSUMABLES && pThisItem->id->itemType != ITEM_CONSUMABLE) {
+				continue;
+			}
+			else if (ui_inventoryFilter.integer == JKGIFILTER_TOOLS && pThisItem->id->itemType != ITEM_TOOL)
+			{
+				continue;
+			}
+			else if (ui_inventoryFilter.integer == JKGIFILTER_AMMO && pThisItem->id->itemType != ITEM_AMMO)
+			{
 				continue;
 			}
 			else if (ui_inventoryFilter.integer == JKGIFILTER_MISC) {
@@ -395,6 +391,7 @@ void JKG_Shop_ShopSelection(itemDef_t* item, int nOwnerDrawID) {
 // The name of the item that shows on each button
 //
 extern void Item_Text_Paint(itemDef_t *item);
+extern void Item_Text_Paint(itemDef_t* item, vec4_t& color);
 void JKG_Shop_InventoryItemName(itemDef_t* item, int nOwnerDrawID) {
 	if (nInventoryScroll + nOwnerDrawID >= nNumberInventoryItems) {
 		memset(item->text, 0, sizeof(item->text));
@@ -403,7 +400,12 @@ void JKG_Shop_InventoryItemName(itemDef_t* item, int nOwnerDrawID) {
 	}
 	itemInstance_t* pItem = vInventoryItems[nInventoryScroll + nOwnerDrawID].second;
 	Q_strncpyz(item->text, pItem->id->displayName, sizeof(item->text));
-	Item_Text_Paint(item);
+
+	//figure out color based on item tier
+	vec4_t color;
+	JKG_SetTierColor(pItem->id->itemTier, color);
+	item->window.flags |= WINDOW_TEXTCOLOR; //we're overriding the color
+	Item_Text_Paint(item, color);
 }
 
 void JKG_Shop_ShopItemName(itemDef_t* item, int nOwnerDrawID) {
@@ -414,7 +416,12 @@ void JKG_Shop_ShopItemName(itemDef_t* item, int nOwnerDrawID) {
 	}
 	itemInstance_t* pItem = vShopItems[nShopScroll + nOwnerDrawID].second;
 	Q_strncpyz(item->text, pItem->id->displayName, sizeof(item->text));
-	Item_Text_Paint(item);
+	
+	//figure out color based on item tier
+	vec4_t color;
+	JKG_SetTierColor(pItem->id->itemTier, color);
+	item->window.flags |= WINDOW_TEXTCOLOR; //we're overriding the color
+	Item_Text_Paint(item, color);
 }
 
 //
@@ -434,10 +441,12 @@ void JKG_Shop_InventoryItemCost(itemDef_t* item, int nOwnerDrawID) {
 
 	if (!Q_stricmp(pItem->id->internalName, Info_ValueForKey(info, "jkg_startingGun")) && nNumberInventoryItems > 1)		//selling our starting gun is worth only one credit
 		sprintf(item->text, "%i", 1);
-
-	else
+	
+	else // we only get 1/2 the cost back
+	{
 		sprintf(item->text, "%i", pItem->id->baseCost / 2 * pItem->quantity);
-
+	}
+		
 	Item_Text_Paint(item);
 }
 
@@ -538,6 +547,17 @@ char* JKG_ShopAmmoPriceText() {
 	{
 		return "...";
 	}
+}
+
+/*#include <game/g_local.h>*/
+char* JKG_ShopRefreshTimeText()
+{
+	/*if (jkg_announceShopRefresh.integer > 0
+		&& ((level.time - level.startTime) > jkg_shop_replenish_time.integer * 1000 - 1))*/
+
+	//need access to level.time to figure out how much refresh time is left
+	int timeRemaining = 300;
+	return va("%i", timeRemaining);
 }
 
 //

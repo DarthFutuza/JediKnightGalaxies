@@ -17,7 +17,7 @@
             "firemode":     "models/weapons/A200_ACP_BattleRifle/firemode"
         },
         
-        "gunposition":      "7.0 -4.0 -6.0", // cg_gunx 9
+        "gunposition":      "10.0 -4.0 -8.0",
         "ironsightsposition": "6.0 0.0 -6.44",
         "ironsightsfov": "70",
 		"barrelCount": "2",
@@ -84,13 +84,22 @@
     },
     
     "firemode0": {
-        "damage":       30,
+        "damage":
+        {
+            "damage": 32,
+            "buffs": [
+			{
+				"buff": "standard-bleed",
+				"duration": 3000
+			}
+			]
+        }, 
         "ammocost":     1,
-        "burstshotdelay": 100,
+        "burstshotdelay": 60,
         "firedelay":    900,
         "firingtype":   "burst",
         "range":        5000.0,
-        "recoil":       0.8,
+        "recoil":       0.6,
         "shotsperburst": 3,
         "spread":       0.2,
         "projectilespeed": 7000.0,
@@ -106,14 +115,23 @@
         	"maxAccuracyAdd": 80,
         	"crouchModifier": 0.96,
         	"runModifier": 1.7,
-        	"sightsModifier": 0.95,
+        	"sightsModifier": 0.45,
         	"walkModifier": 1.2,
         	"inAirModifier": 1.9
         }
     },
 
     "firemode1": {
-        "damage":       35,
+        "damage":
+        {
+            "damage": 37,
+            "buffs": [
+			{
+				"buff": "standard-bleed",
+				"duration": 4000
+			}
+			]
+        }, 
         "ammocost":     1,
         "firedelay":    400,
         "firingtype":   "semi",
@@ -133,14 +151,14 @@
         	"maxAccuracyAdd": 75,
         	"crouchModifier": 0.7,
         	"runModifier": 1.7,
-        	"sightsModifier": 0.5,
+        	"sightsModifier": 0.3,
         	"walkModifier": 1.2,
         	"inAirModifier": 1.9
         }
     },
     
     "firemode2": {
-        "damage":       40,//100,
+        "damage":       60,//40,
         "ballistic":    true,
         "collisionsize": 2.0,
         "ammocost":     1,
@@ -149,7 +167,7 @@
         "range":        40000.0,
         "recoil":       4.0,
         "spread":       1.0,
-        "splashrange":  280,//140,
+        "splashrange":  380,//280,
         "projectilespeed":2400.0,
         "projectileclass": "repeater_proj",
         "meansofdeath": "MOD_EXPLOSION",

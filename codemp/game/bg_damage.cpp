@@ -40,7 +40,7 @@ JKG_ParseSingleMeansOfDamage
 =========================
 */
 static void JKG_ParseSingleMeansOfDamage(const char* name, cJSON* json) {
-	meansOfDamage_t mod = { 0 };
+	meansOfDamage_t mod = {};
 	cJSON* jsonNode;
 	cJSON* child;
 	
@@ -68,6 +68,9 @@ static void JKG_ParseSingleMeansOfDamage(const char* name, cJSON* json) {
 
 		child = cJSON_GetObjectItem(jsonNode, "dodgeable");
 		mod.modifiers.dodgeable = cJSON_ToBooleanOpt(child, qfalse);
+
+		child = cJSON_GetObjectItem(jsonNode, "isEMP");
+		mod.modifiers.isEMP = cJSON_ToBooleanOpt(child, qfalse);
 
 		child = cJSON_GetObjectItem(jsonNode, "armor");
 		mod.modifiers.armor = cJSON_ToNumberOpt(child, 1.0);

@@ -190,6 +190,7 @@ qboolean NPC_IsHumanoid( void )
 	case CLASS_SWAMPTROOPER:
 	case CLASS_TAVION:
 	case CLASS_TRANDOSHAN:
+	case CLASS_TUSKEN:
 	case CLASS_UGNAUGHT:
 	case CLASS_JAWA:
 	case CLASS_WEEQUAY:
@@ -202,6 +203,7 @@ qboolean NPC_IsHumanoid( void )
 	case CLASS_WEAPONS_VENDOR:
 	case CLASS_ARMOR_VENDOR:
 	case CLASS_SUPPLIES_VENDOR:
+	case CLASS_EQUIPMENT_VENDOR:
 	case CLASS_FOOD_VENDOR:
 	case CLASS_MEDICAL_VENDOR:
 	case CLASS_GAMBLER_VENDOR:
@@ -284,6 +286,7 @@ qboolean NPC_IsJedi ( gentity_t *self )
 	//case CLASS_SWAMPTROOPER:
 	case CLASS_TAVION:
 	//case CLASS_TRANDOSHAN:
+	//case CLASS_TUSKEN:
 	//case CLASS_UGNAUGHT:
 	//case CLASS_JAWA:
 	//case CLASS_WEEQUAY:
@@ -296,6 +299,7 @@ qboolean NPC_IsJedi ( gentity_t *self )
 	//case CLASS_WEAPONS_VENDOR:
 	//case CLASS_ARMOR_VENDOR:
 	//case CLASS_SUPPLIES_VENDOR:
+	//case CLASS_EQUIPMENT_VENDOR:
 	//case CLASS_FOOD_VENDOR:
 	//case CLASS_MEDICAL_VENDOR:
 	//case CLASS_GAMBLER_VENDOR:
@@ -491,6 +495,7 @@ qboolean Boba_ChangeWeapon( int wp )
 	case CLASS_SWAMPTROOPER:
 	//case CLASS_TAVION:
 	case CLASS_TRANDOSHAN:
+	case CLASS_TUSKEN:
 	case CLASS_UGNAUGHT:
 	case CLASS_JAWA:
 	case CLASS_WEEQUAY:
@@ -503,6 +508,7 @@ qboolean Boba_ChangeWeapon( int wp )
 	//case CLASS_WEAPONS_VENDOR:
 	//case CLASS_ARMOR_VENDOR:
 	//case CLASS_SUPPLIES_VENDOR:
+	//case CLASS_EQUIPMENT_VENDOR:
 	//case CLASS_FOOD_VENDOR:
 	//case CLASS_MEDICAL_VENDOR:
 	//case CLASS_GAMBLER_VENDOR:

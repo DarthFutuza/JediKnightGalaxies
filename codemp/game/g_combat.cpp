@@ -310,6 +310,7 @@ void GenericPlum(gentity_t *ent, vec3_t origin, char *str, int color)
 DamagePlum
 ===========
 */
+#include <numeric>
 void DamagePlum( gentity_t *ent, vec3_t origin, int damage, int meansOfDeath, int shield, qboolean weak ) {
 	meansOfDamage_t* means = JKG_GetMeansOfDamage(meansOfDeath);
 	
@@ -321,11 +322,25 @@ void DamagePlum( gentity_t *ent, vec3_t origin, int damage, int meansOfDeath, in
 	if (ent->damagePlumTime != level.time) {
 		ent->damagePlum = G_TempEntity( origin, EV_DAMAGEPLUM );
 		ent->damagePlumTime = level.time;
-	} 
+	}
+	else //if it happens in the same frame
+	{
+		//its the same means
+		if (meansOfDeath == ent->damagePlum->s.eventParm)
+		{
+			//stack up the damage
+			if (ent->damagePlum->s.time)
+				damage += ent->damagePlum->s.time;
+
+			//stack up all the shield damage
+			if (ent->damagePlum->s.generic1)
+				shield += ent->damagePlum->s.generic1;
+		}
+	}
 	ent->damagePlum->s.time = damage;
 	ent->damagePlum->s.eventParm = meansOfDeath;
 	ent->damagePlum->s.generic1 = shield;
-	ent->damagePlum->s.groundEntityNum = weak;
+	ent->damagePlum->s.groundEntityNum = weak; //note may be inaccurate as it just overwrites whatever the prior value was if it happens in the same frame
 }
 
 /*
@@ -1644,7 +1659,7 @@ JKG_HandleUnclaimedBounties
 qboolean JKG_HandleUnclaimedBounties(gentity_t* deadguy)
 {
 	int multiplier = (deadguy->client->numKillsThisLife > jkg_maxKillStreakBounty.integer) ? jkg_maxKillStreakBounty.integer : deadguy->client->numKillsThisLife;
-	gentity_t* player; int reward = jkg_bounty.integer*multiplier ;	//set default reward as jkg_bounty
+	gentity_t* player; int reward = jkg_bounty.integer*multiplier;	//set default reward as jkg_bounty
 	int team_amt{ 0 };	//# of players on the team to reward
 
 	int teamToReward = deadguy->client->sess.sessionTeam;	//get dead guy's team
@@ -1668,6 +1683,12 @@ qboolean JKG_HandleUnclaimedBounties(gentity_t* deadguy)
 	if (team_amt < 1)	//nobody there
 		return false;
 
+	//calculate team reward split
+	reward = (reward / team_amt);																//equally distribute reward among team
+	reward = (reward < jkg_teamKillBonus.integer) ? jkg_teamKillBonus.integer : reward;			//unless its less than teamKillBonus
+	if (team_amt == 1)																			//if only one player, don't give him the whole reward since its not a direct kill
+		reward = reward * 0.5;
+
 	for (int i = 0; i < sv_maxclients.integer; i++)
 	{
 		player = &g_entities[i];
@@ -1677,13 +1698,9 @@ qboolean JKG_HandleUnclaimedBounties(gentity_t* deadguy)
 		//if we're not on deadguy's team, we deserve a reward!
 		if (player->client->sess.sessionTeam == teamToReward)
 		{
-			reward = (reward / team_amt);																//equally distribute reward among team
-			reward = (reward < jkg_teamKillBonus.integer) ? jkg_teamKillBonus.integer : reward;			//unless its less than teamKillBonus
-			if (team_amt == 1)																			//if only one player, don't give him the whole reward since its not a direct kill
-				reward = reward * 0.5;
 			trap->SendServerCommand(player->s.number, va("notify 1 \"Team Bounty Claimed: +%i Credits\"", reward));
 			player->client->ps.credits += reward;
-			//consider doing some sort of sound to hint at reward here  --futuza
+			trap->SendServerCommand(player->s.number, "hitmarker");
 		}
 	}
 	return true;
@@ -2213,7 +2230,7 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 	Team_FragBonuses(self, inflictor, attacker);
 
 	// if I committed suicide, the flag does not fall, it returns.
-	if (meansOfDeath == MOD_SUICIDE) {
+	if (meansOfDeath == MOD_SUICIDE || meansOfDeath == MOD_TEAM_CHANGE) {
 		if ( self->client->ps.powerups[PW_REDFLAG] ) {		// only happens in standard CTF
 			Team_ReturnFlag( TEAM_RED );
 			self->client->ps.powerups[PW_REDFLAG] = 0;
@@ -2301,7 +2318,7 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 		static int i;
 
 		anim = G_PickDeathAnim(self, self->pos1, damage, meansOfDeath, HL_NONE);
-
+		
 		if (anim >= 1)
 		{ //Some droids don't have death anims
 			// for the no-blood option, we need to prevent the health
@@ -3182,6 +3199,7 @@ int gGAvoidDismember = 0;
 
 void UpdateClientRenderBolts(gentity_t *self, vec3_t renderOrigin, vec3_t renderAngles);
 
+
 qboolean G_GetHitLocFromSurfName( gentity_t *ent, const char *surfName, int *hitLoc, vec3_t point, vec3_t dir, vec3_t bladeDir, int mod )
 {
 	qboolean dismember = qfalse;
@@ -3838,34 +3856,36 @@ void G_CheckForBlowingUp(gentity_t *ent, gentity_t *enemy, vec3_t point, int dam
 
 /*
  *	Modifies the damage based on the location where it hit and also the armor equipped at that location (if any)
+    Returns true if a headshot, false if anything else.
  */
-void G_LocationBasedDamageModifier(gentity_t *ent, vec3_t point, int mod, int dflags, int *damage, meansOfDamage_t* means)
+bool G_LocationBasedDamageModifier(gentity_t *ent, vec3_t point, int mod, int dflags, int *damage, meansOfDamage_t* means)
 {
 	int hitLoc = -1;
 	int armorSlot = 0;
+	qboolean headshot = false;
 
 	if (!g_locationBasedDamage.integer)
 	{ //then leave it alone
-		return;
+		return false;
 	}
 
 	if (means == nullptr) {
-		return;
+		return false;
 	}
 
 	if ( (dflags&DAMAGE_NO_HIT_LOC) )
 	{ //then leave it alone
-		return;
+		return false;
 	}
 
 	if (mod == MOD_SABER && *damage <= 1)
 	{ //don't bother for idle damage
-		return;
+		return false;
 	}
 
 	if (!point)
 	{
-		return;
+		return false;
 	}
 
 	if ((ent->client && ent->client->g2LastSurfaceTime == level.time && mod == MOD_SABER) || //using ghoul2 collision? Then if the mod is a saber we should have surface data from the last hit (unless thrown).
@@ -3924,6 +3944,7 @@ void G_LocationBasedDamageModifier(gentity_t *ent, vec3_t point, int mod, int df
 	case HL_HEAD:
 		armorSlot = ARMSLOT_HEAD;
 		*damage *= bgConstants.damageModifiers.headModifier;
+		headshot = true;
 		break;
 	default:
 		break; //do nothing then
@@ -3942,6 +3963,11 @@ void G_LocationBasedDamageModifier(gentity_t *ent, vec3_t point, int mod, int df
 			*damage *= modifier;
 		}
 	}
+
+	if (headshot)
+		return true;
+	else
+		return false;
 }
 /*
 ===================================
@@ -3966,8 +3992,16 @@ void G_Knockdown( gentity_t *self, gentity_t *attacker, const vec3_t pushDir, fl
 	{
 		return;
 	}
-	if ( (self->flags & FL_GODMODE) || (self->client->noclip) || (self->client->ps.eFlags & EF_JETPACK_ACTIVE)) {
-		return;	// Dont knock down when havin godmode or noclip, or when usin a jetpack
+	if ( (self->flags & FL_GODMODE) || (self->client->noclip)) {
+		return;	// Dont knock down when havin godmode or noclip
+	}
+	
+	//75% chance to knock jetpacks out of the air
+	if (self->client->ps.eFlags & EF_JETPACK_ACTIVE)
+	{
+		if(Q_irand(1,4) > 1)
+			Jetpack_Off(self);
+		//return;  //jetpacks used to be immune to knockback
 	}
 
 	if ( PM_LockedAnim( self->client->ps.legsAnim ) )
@@ -4048,6 +4082,78 @@ void G_Knockdown( gentity_t *self, gentity_t *attacker, const vec3_t pushDir, fl
 }
 
 /*
+===================================
+//Evasion Mechanics
+JKG_EvaluateEvasion()
+===================================
+*/
+int G_EvaluateEvasion(gentity_s* targ, gentity_s* attacker, int take)
+{
+	/*
+			Note:
+			Would like to make this sort of thing a skill (bounty hunter tree or something), can use rolling to evade attacks.
+			Chances for successfully dodging with a roll would depend on player's skill level.  Some stuff shouldn't be evadeable.
+			Probably should lower damage, instead of evading entirely as well.  Right now this is just an outline idea that is still fun.
+			--Futuza
+	*/
+
+		//sample skill calculation:
+		int dodgeSkill_level = 3;	//get player's skill level - we'll default to level 3 for now
+		float dmgReduction;
+
+		switch (dodgeSkill_level)
+		{
+		case 0:
+			dmgReduction = 0;	//no skill, no dodge allowed
+			break;
+		case 1:
+			dmgReduction = 0.1f;
+			break;
+		case 2:
+			dmgReduction = 0.125f;
+			break;
+		case 3:
+			dmgReduction = 0.15f;	//maximum reduction
+			break;
+		default:
+			dmgReduction = 0;
+		}
+
+
+		bool rolled = false;
+		if (dmgReduction > 0)
+		{
+			if( targ->client->ps.speed > 25 && BG_InRoll(targ->playerState, targ->client->ps.legsAnim)) //check if target is moving & in a roll anim)
+			{
+				int timing = bgAllAnims[targ->localAnimIndex].anims[targ->client->ps.legsAnim].numFrames * fabs((float)(bgHumanoidAnimations[targ->client->ps.legsAnim].frameLerp));	//get animation timing length
+				timing *= 0.5f; //cut in two
+				if ((timing + 300 > targ->playerState->legsTimer) && (targ->playerState->legsTimer > timing - 300))		//perfect timing
+				{
+					trap->SendServerCommand(targ - g_entities, va("notify 1 \"Flawless Dodge!\""));
+					take > 2 ? take *= (1 - (dmgReduction * 2)) : take = 1;	//double , or set it to 1
+					G_Sound(targ, CHAN_AUTO, G_SoundIndex("sound/weapons/melee/swing4.mp3"));		//play flawless dodge sound
+				}
+				else
+				{
+					take > 2 ? take *= (1 - dmgReduction) : take = 1;	//reduce damage by 1/4
+					trap->SendServerCommand(targ - g_entities, va("notify 1 \"Dodge!\""));
+				}
+				rolled = true;
+			}
+		}
+		if (rolled)
+		{
+			//do dodge efx/plum here
+
+			if (attacker != targ || !attacker->client || attacker->s.number >= MAX_CLIENTS) //notify other players we dodged
+				trap->SendServerCommand(attacker - g_entities, va("notify 1 \"%s ^7dodged!\"", targ->client->pers.netname));
+		}
+		return take;
+}
+
+
+
+/*
  *	Determines whether damage from attacker to target should trigger a hitmarker
  */
 static QINLINE qboolean ShouldHitmarker( const gentity_t *attacker, const gentity_t *target, const int mod )
@@ -4070,7 +4176,7 @@ static QINLINE qboolean ShouldHitmarker( const gentity_t *attacker, const gentit
 	}
 	if( !target->client )
 	{
-		if ( target->s.eType == ET_GENERAL && target->s.eType == WP_TURRET )
+		if ( target->s.eType == ET_GENERAL || target->s.eType == WP_TURRET )	//futuza: shouldn't this be || instead of &&?
 			return qtrue;
 		return qfalse;
 	}
@@ -4200,7 +4306,9 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 	int			take;
 	int			ssave;
 	int			knockback;
+	qboolean	isHeadShot = false;
 	meansOfDamage_t* means = JKG_GetMeansOfDamage(mod);
+
 
 	if (!targ || !targ->inuse)
 	{
@@ -4233,6 +4341,7 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		case CLASS_WEAPONS_VENDOR:
 		case CLASS_ARMOR_VENDOR:
 		case CLASS_SUPPLIES_VENDOR:
+		case CLASS_EQUIPMENT_VENDOR:
 		case CLASS_FOOD_VENDOR:
 		case CLASS_MEDICAL_VENDOR:
 		case CLASS_GAMBLER_VENDOR:
@@ -4510,88 +4619,36 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 	if ( damage < 1 ) {
 		damage = 1;
 	}
-	take = damage;
+	take = damage;  //from this point on want to know diff between damage received and what is actually taken (things like shields, armor, evasion all will reduce it)
 
-
-	///////////////////////////////////////
-	//
-	//Evasion Mechanics
-	//
-
-	//if roll dodges are allowed (off by default since gimmicky in phase 1)
+	//if roll dodges are allowed (on by default)
 	if (jkg_allowDodge.integer > 0 && take > 0 && means->modifiers.dodgeable && targ->client)
 	{
-		/*
-			Note:
-			Would like to make this sort of thing a skill (bounty hunter tree or something), can use rolling to evade attacks.
-			Chances for successfully dodging with a roll would depend on player's skill level.  Some stuff shouldn't be evadeable.
-			Probably should lower damage, instead of evading entirely as well.  Right now this is just an outline idea that is still fun.
-			--Futuza
-		*/
-		
-		//sample skill calculation:
-		int dodgeSkill_level = 3;	//get player's skill level
-		float dmgReduction;
-
-		switch (dodgeSkill_level)
-		{
-		case 0:
-			dmgReduction = 0;	//no skill, no dodge allowed
-			break;
-		case 1:
-			dmgReduction = 0.1f;
-			break;
-		case 2:
-			dmgReduction = 0.125f;
-			break;
-		case 3:
-			dmgReduction = 0.15f;	//maximum reduction
-			break;
-		default:
-			dmgReduction = 0;
-		}
-
-
-		bool rolled = false;
-		if(dmgReduction > 0)
-		{
-			switch (targ->client->ps.legsAnim)	//check for roll & dmgReduction exists
-			{
-				case BOTH_ROLL_F: case BOTH_ROLL_B:
-				case BOTH_ROLL_R: case BOTH_ROLL_L:
-				case BOTH_GETUP_BROLL_B: case BOTH_GETUP_BROLL_F:
-				case BOTH_GETUP_BROLL_L: case BOTH_GETUP_BROLL_R:
-				case BOTH_GETUP_FROLL_B: case BOTH_GETUP_FROLL_F:
-				case BOTH_GETUP_FROLL_L: case BOTH_GETUP_FROLL_R:
-				if (targ->playerState->legsTimer > 0)	//they're rolling perfectly
-				{
-					int timing = bgAllAnims[targ->localAnimIndex].anims[targ->client->ps.legsAnim].numFrames * fabs((float)(bgHumanoidAnimations[targ->client->ps.legsAnim].frameLerp));	//get animation timing length
-					timing *= 0.5f; //cut in two
-					if ( (timing+300 > targ->playerState->legsTimer) && (targ->playerState->legsTimer > timing-300) )
-					{
-						trap->SendServerCommand(targ - g_entities, va("notify 1 \"Flawless Dodge!\""));
-						take > 2 ? take *= (1 - (dmgReduction * 2)) : take = 1;	//double , or set it to 1
-						G_Sound(targ, CHAN_AUTO, G_SoundIndex("sound/weapons/melee/swing4.mp3"));		//play flawless dodge sound
-					}
-					else
-					{
-						take > 2 ? take *= (1-dmgReduction) : take = 1;	//reduce damage by 1/4
-						trap->SendServerCommand(targ - g_entities, va("notify 1 \"Dodge!\""));
-					}
-					rolled = true;
-				}
-				break;
-			}
-		}
-		if (rolled)
-		{	
-			//do dodge efx/plum here
-
-			if (attacker != targ || !attacker->client || attacker->s.number >= MAX_CLIENTS) //notify other players we dodged
-				trap->SendServerCommand(attacker - g_entities, va("notify 1 \"%s ^7dodged!\"", targ->client->pers.netname));
-		}
+		take = G_EvaluateEvasion(targ, attacker, take); //calculate roll dodge reduction
 	}
 
+	int directDmg = 0; //direct damage that bypasses shield from ACP weaponry
+	if (mod == JKG_GetMeansOfDamageIndex("MOD_ACP") ) //handle division of ACP type damage
+	{
+		const weaponData_t* weaponData;
+		weaponData = GetWeaponData(attacker->client->ps.weapon, attacker->client->ps.weaponVariation);
+		float ratio = weaponData->firemodes[attacker->client->ps.firingMode].ACPRatio; //defaults to 0.5
+
+		//clamp range
+		if (ratio > 1)
+			ratio = 1.0f;
+		if (ratio < 0)
+			ratio = 0.0f;
+
+		directDmg = take * ratio; //% that is direct (bypasses shields), eg: 30dmg * 0.4 == 12 direct dmg
+		take = (1 - ratio) * take; //% that is energy (blocked by shields), eg: 30dmg * 0.6 == 18 dmg to shield (or carry over to direct dmg if no shield)
+
+		//set minimum dmg to 1
+		if (take < 1)
+			take = 1;
+		if (directDmg < 1)
+			directDmg = 1;
+	}
 
 	///////////////////////////////////////
 	//
@@ -4600,12 +4657,13 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 	//	3. Reduce damage by armor reduction
 
 	// save some from shield
-	if (means->modifiers.shieldBlocks && targ->client->ps.stats[STAT_SHIELD] > 0)
+	if (targ->client && means->modifiers.shieldBlocks && targ->client->ps.stats[STAT_SHIELD] > 0)
 	{
 		// this damage is -completely avoided- because we're wearing a shield
-		ssave = take;
+		ssave = 1;	//setting to 1 for now, to indicate immunity since we can't display 0's or characters with plums yet
 		take = 0;
 		ShieldHitEffect(targ, dir, ssave);
+
 	}
 	else
 	{
@@ -4618,23 +4676,42 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 					targ->client->ps.stats[STAT_SHIELD] -= ssave;
 					take = 0;
 				}
-				else if (targ->client->ps.stats[STAT_SHIELD] > 0) {
-					// we have some shields but we can break some damage through
-					take -= targ->client->ps.stats[STAT_SHIELD];
-					targ->client->ps.stats[STAT_SHIELD] = 0;
+				else if (targ->client->ps.stats[STAT_SHIELD] > 0)
+				{
+					//special exception for when damage ties shield charge
+					if (static_cast<int>(take*means->modifiers.shield) == targ->client->ps.stats[STAT_SHIELD])
+					{
+						targ->client->ps.stats[STAT_SHIELD] = 0;
+						take = 0;
+					}
+
+					// we have some shield charge but some damage will break through
+					else
+					{
+						take -= targ->client->ps.stats[STAT_SHIELD];
+						targ->client->ps.stats[STAT_SHIELD] = 0;
+
+						if (take < 1)			//this isn't just safety checking, in the event that the means does extra damage to shields, ssave will be > take, so we'd end up a negative spill over.
+							take = -take;	  //eg: 27 shield, 26 take (multipled to 41 shield dmg reduced to 27) == 26-27 == -1, uh oh!  no worries, math is still correct, just reverse the negative
+					}
+					
 				}
 			}
 			ShieldHitEffect(targ, dir, ssave);
 		}
 	}
-	
+
+	take = take + directDmg;	//apply direct damage in case the shield was bypassed
+
 
 	if (take > 0 && !(dflags&DAMAGE_NO_HIT_LOC))
 	{//see if we should modify it by damage location
 		if (targ->client &&
 			attacker->inuse && attacker->client)
 		{ //check for location based damage stuff.
-			G_LocationBasedDamageModifier(targ, point, mod, dflags, &take, means);
+			isHeadShot = G_LocationBasedDamageModifier(targ, point, mod, dflags, &take, means);
+			if (targ->health < 0)
+				isHeadShot = qfalse;	//don't notify about headshots on corpses
 		}
 	}
 
@@ -4648,6 +4725,25 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		{
 			take *= means->modifiers.droid;
 		}
+	}
+
+	// save some from being resistant (eg: carbonite protects us)
+	if (targ->client && take > 0 && JKG_HasResistanceBuff(targ->playerState))
+	{
+		take = take / 2; //reduce damage by 1/2
+		if (take < 1)
+			take = 1;
+	}
+
+	//apply EMP effects from electric damage
+	if (take && targ->client && means->modifiers.isEMP)
+	{
+		//short out jetpacks
+		if (targ->client->ps.eFlags & EF_JETPACK_ACTIVE)
+			Jetpack_Off(targ);
+
+		//--Futuza: note that a better version of EMP is available through the standard-emp debuff, this only shorts stuff out once
+		//see how it interacts with jetpacks in jkg_equip.cpp ItemUse_Jetpack()
 	}
 
 #ifndef FINAL_BUILD
@@ -4708,16 +4804,16 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 	// do the damage
 	if (take || ssave) 
 	{
-		// Display damage sustained
+		// Display actual damage sustained
 		if ( targ->health > 0 )
 		{
 			if ( !point || ( dflags & DAMAGE_RADIUS ))
 			{
-				DamagePlum(targ, targ->r.currentOrigin, ( take > targ->health ) ? targ->health : take, mod, ssave, take <= (damage / 4) );
+				DamagePlum(targ, targ->r.currentOrigin, take, mod, ssave, take <= (damage / 4));
 			}
 			else
 			{
-				DamagePlum(targ, point, ( take > targ->health ) ? targ->health : take, mod, ssave, take <= (damage / 4) );
+				DamagePlum(targ, point, take, mod, ssave, take <= (damage / 4));
 			}
 		}
 		// -----------------------
@@ -4730,6 +4826,12 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 			{
 				targ->health = 1;
 			}
+		}
+
+		//don't bother with negative health  //--Futuza: for some reason if this isn't present disintegration sometimes doesn't happen for high damage?
+		if (targ->health < 0)
+		{
+			targ->health = -10;	
 		}
 
 		if ( targ->client ) {
@@ -4795,6 +4897,21 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 				else
 				{
 					VectorCopy(targ->client->ps.origin, targ->pos1);
+				}
+
+				//notify of headshot --futuza
+				if (isHeadShot)
+				{
+					if (attacker == targ)
+					{
+						trap->SendServerCommand(targ - g_entities, va("chat 100 \"Killed by your own head blow!\""));
+					}
+
+					else
+					{
+						trap->SendServerCommand(targ - g_entities, va("chat 100 \"Killed by %s^7's head blow!\"", attacker->client->pers.netname));
+						trap->SendServerCommand(attacker - g_entities, va("notify 1 \"Head blow!\""));
+					}
 				}
 			}
 			else if (targ->s.eType == ET_NPC)

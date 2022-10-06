@@ -12,7 +12,7 @@
         "hudnaicon":        "models/weapons/E-11_StunCarbine/icon_default",
         "selectsound":      "sound/weapons/select_carbine.wav",
         
-        "gunposition":      "7.0 -2.2 -6.7",
+        "gunposition":      "14.0 -4.0 -8.0",
         "ironsightsposition": "13.0 0.0 -4.6",
         "ironsightsfov": "70",
 		"barrelCount": "4",
@@ -80,7 +80,9 @@
     
     "firemode0": {
         "damage": {
-                               "damage":       0,
+					"damageradius": { "start": 8,
+                    "function": [ "constant"] },
+					"damage":       10,
 				"buffs": [
 					{
 						"buff": "standard-stun",
@@ -95,14 +97,14 @@
         "ammocost":     10,
         "firedelay":    1700,
         "firingtype":   "semi",
-        "range":        800.0,
+        "range":        1400.0,
         "recoil":       0.5,
         "spread":       1.0,
         "projectilespeed": 4000.0,
         "projectileclass": "blaster_proj",
-        "meansofdeath": "MOD_BLASTER",
-	"ammobase": "AMMO_POWERPACK_L",
-	"ammodefault": "AMMO_POWERPACK_S",
+        "meansofdeath": "MOD_STUNNED",
+	"ammobase": "AMMO_POWERPACK_M",
+	"ammodefault": "AMMO_POWERPACK_M",
         "clipSize":              30
     },
 
@@ -139,8 +141,8 @@
         "projectileclass": "blaster_proj",
         "meansofdeath": "MOD_BLASTER",
         "splashmeansofdeath": "MOD_BLASTER",
-	"ammobase": "AMMO_POWERPACK_L",
-	"ammodefault": "AMMO_POWERPACK_S",
+	"ammobase": "AMMO_POWERPACK_M",
+	"ammodefault": "AMMO_POWERPACK_M",
         "accuracy": {
 			"accuracyRating": 22,
 			"accuracyRatingPerShot": 3,
@@ -151,7 +153,9 @@
 			"sightsModifier": 0.7,
 			"walkModifier": 1.1,
 			"inAirModifier": 1.6
-        }
+        },
+        "heatGenerated": 3,
+        "maxHeat":	150
     },
 
     "playeranims": {

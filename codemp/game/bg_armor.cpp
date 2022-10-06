@@ -75,7 +75,7 @@ armorG2Reference_t* JKG_RegisterArmorGhoul2(const char* ref, char* model) {
 	// Strip out the stuff after the *
 	char* find = Q_strrchr(model, '*');
 	if (find != nullptr)
-		Q_strncpyz(model, model, find - model);
+		*find = 0; //Q_strncpyz(model, model, find - model); instead, just set to null to end the string.
 #else
 	g2Table[numUsedG2].skin = CG_HandleAppendedSkin(model);
 #endif
@@ -214,6 +214,12 @@ static qboolean JKG_ParseArmorFile(char* buffer, const char* fileName, armorData
 	jsonNode = cJSON_GetObjectItem(json, "hp");
 	armorData.hp = cJSON_ToIntegerOpt(jsonNode, 0);
 
+	jsonNode = cJSON_GetObjectItem(json, "stamina");
+	armorData.stamina = cJSON_ToIntegerOpt(jsonNode, 0);
+
+	jsonNode = cJSON_GetObjectItem(json, "filter");
+	armorData.filter = cJSON_ToBooleanOpt(jsonNode, false);
+
 	jsonNode = cJSON_GetObjectItem(json, "movemodifier");
 	armorData.movemodifier = cJSON_ToNumberOpt(jsonNode, 1.0);
 
@@ -275,7 +281,7 @@ void JKG_LoadArmor() {
 	int failed = 0;
 	int numFiles;
 
-	numFiles = trap->FS_GetFileList(armorDir, ".arm", armorFiles, sizeof(armorFiles));
+	numFiles = Q_FSGetFileListSorted(armorDir, ".arm", armorFiles, sizeof(armorFiles));
 	armor = armorFiles;
 
 	Com_Printf("------- Armor -------\n");
